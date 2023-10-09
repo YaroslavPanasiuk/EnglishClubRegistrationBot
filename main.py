@@ -11,7 +11,8 @@ from google_auth_oauthlib.flow import InstalledAppFlow
 from googleapiclient.discovery import build
 from googleapiclient.errors import HttpError
 
-ENTER_NAME, ENTER_PHONE, ENTER_SEX, ENTER_UNI, ENTER_COURSE, ENTER_VISITED, SPECIFY_VISITED, ENTER_HOW_COME, ENTER_ENGLISH_LEVEL, ENTER_RELIGIOUS, EXIT_CONVERSATION = range(11)
+ENTER_NAME, ENTER_PHONE, ENTER_SEX, ENTER_UNI, ENTER_COURSE, ENTER_VISITED, SPECIFY_VISITED, ENTER_HOW_COME, ENTER_ENGLISH_LEVEL, ENTER_RELIGIOUS, EXIT_CONVERSATION = range(
+    11)
 
 
 class Student:
@@ -33,16 +34,6 @@ class Student:
 
 
 user = Student()
-
-
-def print_jobs(update, context):
-    if update.message.chat_id != int(read_config('ADMIN_ID')):
-        context.bot.send_message(chat_id=update.message.chat_id, text='This command is for admin only')
-        return
-    text = '{:d} jobs active:\n'.format(len(context.job_queue.jobs()))
-    for i in range(len(context.job_queue.jobs())):
-        text += context.job_queue.jobs()[i].name + ';\n'
-    context.bot.send_message(chat_id=update.message.chat_id, text=text)
 
 
 def read_config(value) -> str:
@@ -116,7 +107,7 @@ def get_questions():
         service = build('sheets', 'v4', credentials=creds)
         sheet = service.spreadsheets()
         questions = sheet.values().get(spreadsheetId=read_config("SAMPLE_SPREADSHEET_ID"),
-                                       range='Питання!B1:B20').execute()
+                                       range='Питання!B1:B30').execute()
         values = questions.get('values', [])
 
         if not values:
@@ -172,12 +163,6 @@ def get_chats():
         print(err)
 
 
-def get_chat_id(update, context):
-    if update.message.chat_id != int(read_config('ADMIN_ID')):
-        return
-    context.bot.send_message(chat_id=update.message.chat_id, text=str(update.message.chat_id))
-
-
 def start_command(update, context):
     keyboard = [[KeyboardButton('Зареєструватись🙌')]]
     context.bot.send_message(chat_id=update.message.chat_id, text=get_question(1),
@@ -185,6 +170,9 @@ def start_command(update, context):
 
 
 def register(update, context):
+    if get_chats().__contains__(str(update.message.chat_id)):
+        context.bot.send_message(chat_id=update.message.chat_id, text=get_question(20))
+        return ConversationHandler.END
     keyboard = [[KeyboardButton('Так!')]]
     context.bot.send_message(chat_id=update.message.chat_id, text=get_question(2),
                              reply_markup=ReplyKeyboardMarkup(keyboard, one_time_keyboard=True))
@@ -307,11 +295,13 @@ def exit_conversation(update, context):
 
 
 def spam_message(update, context):
-    if update.message.chat_id != int(read_config('ADMIN_ID')):
+    if update.message.chat_id != int(read_config('ADMIN_ID')) and update.message.chat_id != int(
+            read_config('COADMIN_ID')):
         return ConversationHandler.END
     chats = get_chats()
     context.bot.send_message(chat_id=update.message.chat_id,
-                             text='Введіть повідомлення для розсилки {n} людям {chats}'.format(n=len(chats), chats=chats))
+                             text='Введіть повідомлення для розсилки {n} людям {chats}'.format(n=len(chats),
+                                                                                               chats=chats))
     return 0
 
 
@@ -319,10 +309,46 @@ def ask_message_text(update, context):
     print('hello')
     chats = get_chats()
     print(chats)
-    for chat in chats:
-        context.bot.send_message(chat_id=int(chat), text=update.message.text)
-    context.bot.send_message(chat_id=update.message.chat_id, text='sent')
-    return ConversationHandler.END
+    try:
+        for chat in chats:
+            context.bot.send_message(chat_id=int(chat), text=update.message.text)
+        context.bot.send_message(chat_id=update.message.chat_id, text='sent')
+    except:
+        context.bot.send_message(chat_id=int(read_config('ADMIN_ID')), text=traceback.format_exc())
+    finally:
+        return ConversationHandler.END
+
+
+def show_menu(update, context):
+    keyboard = [[KeyboardButton('Зареєструватись🙌'), KeyboardButton('Локація🧭')],
+                [KeyboardButton('Розклад📅'), KeyboardButton('Співбесіда')],
+                [KeyboardButton('Tutor time'), KeyboardButton('Про нас')],
+                [KeyboardButton("Зв'язок📱")]]
+    context.bot.send_message(chat_id=update.message.chat_id, text='Меню', reply_markup=ReplyKeyboardMarkup(keyboard))
+
+
+def send_location(update, context):
+    context.bot.send_message(chat_id=update.message.chat_id, text=get_question(14))
+
+
+def send_schedule(update, context):
+    context.bot.send_message(chat_id=update.message.chat_id, text=get_question(15))
+
+
+def send_interview(update, context):
+    context.bot.send_message(chat_id=update.message.chat_id, text=get_question(16))
+
+
+def send_tutor_time(update, context):
+    context.bot.send_message(chat_id=update.message.chat_id, text=get_question(17))
+
+
+def send_about_us(update, context):
+    context.bot.send_message(chat_id=update.message.chat_id, text=get_question(18))
+
+
+def send_connect(update, context):
+    context.bot.send_message(chat_id=update.message.chat_id, text=get_question(19))
 
 
 def main():
@@ -330,7 +356,13 @@ def main():
     updater = Updater(read_config("BOT_TOKEN"), use_context=True)
     dispatcher = updater.dispatcher
     dispatcher.add_handler(CommandHandler('start', start_command))
-    dispatcher.add_handler(CommandHandler('print_jobs', print_jobs))
+    dispatcher.add_handler(CommandHandler('menu', show_menu))
+    dispatcher.add_handler(MessageHandler(Filters.text('Локація🧭'), send_location))
+    dispatcher.add_handler(MessageHandler(Filters.text('Розклад📅'), send_schedule))
+    dispatcher.add_handler(MessageHandler(Filters.text('Співбесіда'), send_interview))
+    dispatcher.add_handler(MessageHandler(Filters.text('Tutor time'), send_tutor_time))
+    dispatcher.add_handler(MessageHandler(Filters.text('Про нас'), send_about_us))
+    dispatcher.add_handler(MessageHandler(Filters.text("Зв'язок📱"), send_connect))
     send_spam_conversation_handler = ConversationHandler(
         entry_points=[MessageHandler(Filters.text('spam_message'), spam_message)],
         states={
