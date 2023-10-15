@@ -185,7 +185,7 @@ def ask_name(update, context):
 def ask_phone(update, context):
     if context.user_data.get('name') is None:
         name = update.message.text.split()
-        if len(name) < 2 or (not (name[0].isalpha() and name[1].isalpha())):
+        if len(name) < 2:
             return ask_name(update, context)
         context.user_data['name'] = update.message.text
     update.message.reply_text(ASK_PHONE_TEXT)
@@ -351,7 +351,7 @@ def send_connect(update, context):
 
 def main():
     print("start")
-    updater = Updater(read_config("TEST_BOT_TOKEN"), use_context=True)
+    updater = Updater(read_config("BOT_TOKEN"), use_context=True)
     dispatcher = updater.dispatcher
     dispatcher.add_handler(CommandHandler('start', start_command))
     dispatcher.add_handler(CommandHandler('menu', show_menu))
