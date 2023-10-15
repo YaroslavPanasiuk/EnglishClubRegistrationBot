@@ -37,9 +37,6 @@ class Student:
         return self.id + ', ' + self.name + ', ' + self.phone + ', ' + self.nickname + ', ' + self.sex + ', ' + self.uni + ', ' + self.course + ', ' + self.visited + ', ' + self.how_come + ', ' + self.english_level + ', ' + self.religious
 
 
-user = Student()
-
-
 def read_config(value) -> str:
     file = open('config.txt', encoding='UTF-8')
     lines = file.readlines()
@@ -186,7 +183,7 @@ def ask_name(update, context):
 
 
 def ask_phone(update, context):
-    if user.name == '-':
+    if context.user_data.get('name') is None:
         name = update.message.text.split()
         if len(name) < 2 or (not (name[0].isalpha() and name[1].isalpha())):
             return ask_name(update, context)
@@ -196,9 +193,10 @@ def ask_phone(update, context):
 
 
 def ask_sex(update, context):
-    if user.phone == '-':
+    if context.user_data.get('name') is None:
         phone = update.message.text
         if not (len(phone) == 12 and phone.isdigit()):
+            print('true')
             return ask_phone(update, context)
         context.user_data['phone'] = phone
     keyboard = [[KeyboardButton('Чол'), KeyboardButton('Жін')]]
@@ -252,7 +250,7 @@ def specify_visited(update, context):
 
 
 def ask_how_come(update, context):
-    if user.visited == 'Так':
+    if context.user_data['visited'] == 'Так':
         context.user_data['visited'] = update.message.text
     keyboard = [[KeyboardButton('Флаєр')], [KeyboardButton('Постер')], [KeyboardButton('Друзі запросили')],
                 [KeyboardButton('Реклама Instagram')], [KeyboardButton('Реклама Telegram')]]
