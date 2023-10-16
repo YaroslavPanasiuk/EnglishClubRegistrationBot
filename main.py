@@ -1,11 +1,13 @@
 from __future__ import print_function
 
 import asyncio
+import collections
 import os
 import os.path
+import random
 import time
 import traceback
-from uuid import uuid4
+import pandas as pd
 
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup, KeyboardButton, ReplyKeyboardMarkup, ParseMode
 from telegram.ext import Updater, CommandHandler, MessageHandler, Filters, CallbackQueryHandler, ConversationHandler
@@ -20,21 +22,18 @@ ENTER_NAME, ENTER_PHONE, ENTER_SEX, ENTER_UNI, ENTER_COURSE, ENTER_VISITED, SPEC
 
 
 class Student:
-    def __init__(self):
-        self.name = '-'
-        self.phone = '-'
-        self.nickname = '-'
-        self.sex = '-'
-        self.uni = '-'
-        self.course = '-'
-        self.id = '-'
-        self.visited = '-'
-        self.how_come = '-'
-        self.english_level = '-'
-        self.religious = '-'
-
-    def to_str(self):
-        return self.id + ', ' + self.name + ', ' + self.phone + ', ' + self.nickname + ', ' + self.sex + ', ' + self.uni + ', ' + self.course + ', ' + self.visited + ', ' + self.how_come + ', ' + self.english_level + ', ' + self.religious
+    def __init__(self, values: []):
+        self.id = values[0]
+        self.nickname = values[1]
+        self.name = values[2]
+        self.phone = values[3]
+        self.sex = values[4]
+        self.uni = values[5]
+        self.course = values[6]
+        self.visited = values[7]
+        self.how_come = values[8]
+        self.english_level = values[9]
+        self.religious = values[10]
 
 
 def read_config(value) -> str:
@@ -50,7 +49,7 @@ def read_config(value) -> str:
     return ''
 
 
-def add_to_spreadsheets(data: []):
+def connect_to_spreadsheets():
     creds = None
     scopes = [read_config("SCOPES")]
     if os.path.exists('token.json'):
@@ -64,9 +63,12 @@ def add_to_spreadsheets(data: []):
             creds = flow.run_local_server(port=0)
         with open('token.json', 'w') as token:
             token.write(creds.to_json())
+    return creds
 
+
+def add_to_spreadsheets(data: []):
     try:
-        service = build('sheets', 'v4', credentials=creds)
+        service = build('sheets', 'v4', credentials=connect_to_spreadsheets())
         sheet = service.spreadsheets()
         students = sheet.values().get(spreadsheetId=read_config("SAMPLE_SPREADSHEET_ID"),
                                       range=read_config("SAMPLE_RANGE_NAME")).execute()
@@ -77,9 +79,7 @@ def add_to_spreadsheets(data: []):
                 {
                     'majorDimension': 'ROWS',
                     'range': data_range,
-                    'values': [
-                        data
-                    ]
+                    'values': [data]
                 },
             ]}
         service.spreadsheets().values().batchUpdate(spreadsheetId=read_config("SAMPLE_SPREADSHEET_ID"),
@@ -89,22 +89,8 @@ def add_to_spreadsheets(data: []):
 
 
 def get_questions():
-    creds = None
-    scopes = [read_config("SCOPES")]
-    if os.path.exists('token.json'):
-        creds = Credentials.from_authorized_user_file('token.json', scopes)
-    if not creds or not creds.valid:
-        if creds and creds.expired and creds.refresh_token:
-            creds.refresh(Request())
-        else:
-            flow = InstalledAppFlow.from_client_secrets_file(
-                'credentials.json', scopes)
-            creds = flow.run_local_server(port=0)
-        with open('token.json', 'w') as token:
-            token.write(creds.to_json())
-
     try:
-        service = build('sheets', 'v4', credentials=creds)
+        service = build('sheets', 'v4', credentials=connect_to_spreadsheets())
         sheet = service.spreadsheets()
         questions = sheet.values().get(spreadsheetId=read_config("SAMPLE_SPREADSHEET_ID"),
                                        range='Питання!B2:B30').execute()
@@ -122,26 +108,118 @@ def get_questions():
         print(err)
 
 
-INTRODUCTION_TEXT, REGISTRATION_TEXT, ASK_NAME_TEXT, ASK_PHONE_TEXT, ASK_SEX_TEXT, ASK_UNI_TEXT, ASK_COURSE_TEXT, ASK_VISITED_TEXT, SPECIFY_VISITED_TEXT, ASK_HOW_COME_TEXT, ASK_ENGLISH_LEVEL_TEXT, ASK_RELIGIOUS_TEXT, END_REGISTRATION_TEXT, LOCATION_TEXT, SCHEDULE_TEXT, INTERVIEW_TEXT, TUTOR_TIME_TEXT, ABOUT_US_TEXT, CONNECT_TEXT, INVALID_REGISTRATION_TEXT = get_questions()
+def available_tutor_times():
+    try:
+        service = build('sheets', 'v4', credentials=connect_to_spreadsheets())
+        sheet = service.spreadsheets()
+        questions = sheet.values().get(spreadsheetId=read_config("SAMPLE_SPREADSHEET_ID"),
+                                       range='Tutor time!A1:H60').execute()
+        values = questions.get('values', [])
+
+        if not values:
+            print('No data found.')
+            return
+        for i in range(len(values)):
+            if len(values[i]) > 0 and i > 0 and values[i][0] == '':
+                values[i][0] = values[i - 1][0]
+        df = pd.DataFrame(values)
+        df.columns = df.iloc[0]
+        df = df[1:]
+        mask = ((df['Student'] == '') | (df['Student'].isna())) & (df['Date and time'] != '') & (df['Date and time'].notna())
+        return list(collections.OrderedDict.fromkeys(df.loc[mask, 'Date and time']))
+
+    except HttpError as err:
+        print(err)
+
+
+def find_student(telegram_id):
+    try:
+        service = build('sheets', 'v4', credentials=connect_to_spreadsheets())
+        sheet = service.spreadsheets()
+        questions = sheet.values().get(spreadsheetId=read_config("SAMPLE_SPREADSHEET_ID"),
+                                       range='Реєстрація!A1:K500').execute()
+        values = questions.get('values', [])
+
+        if not values:
+            print('No data found.')
+            return
+        df = pd.DataFrame(values)
+        df.columns = df.iloc[0]
+        df = df[1:]
+        return Student(df.loc[df['id'] == str(telegram_id)].values.flatten().tolist())
+
+    except HttpError as err:
+        print(err)
+
+
+def when_student_has_tutor_time(student: Student):
+    try:
+        service = build('sheets', 'v4', credentials=connect_to_spreadsheets())
+        sheet = service.spreadsheets()
+        questions = sheet.values().get(spreadsheetId=read_config("SAMPLE_SPREADSHEET_ID"),
+                                       range='Tutor time!A1:G60').execute()
+        values = questions.get('values', [])
+        if not values:
+            print('No data found.')
+            return
+        for i in range(len(values)):
+            if len(values[i]) == 0:
+                continue
+            if values[i][0] == '' and i > 0:
+                values[i][0] = values[i-1][0]
+        df = pd.DataFrame(values)
+        df.columns = df.iloc[0]
+        df = df[1:]
+        mask = ((df['Student'] == student.name) & (df["Student's phone number "] == student.phone) &
+                (df['telegram'] == student.nickname))
+        if len(df.loc[mask, "Date and time"]) == 0:
+            return ''
+        return str(df.loc[mask.idxmax(), "Date and time"])
+
+    except HttpError as err:
+        print(err)
+
+
+def add_student_to_tutor_time(student: Student, time: str):
+    try:
+        service = build('sheets', 'v4', credentials=connect_to_spreadsheets())
+        sheet = service.spreadsheets()
+        questions = sheet.values().get(spreadsheetId=read_config("SAMPLE_SPREADSHEET_ID"),
+                                       range='Tutor time!A1:G60').execute()
+        values = questions.get('values', [])
+        if not values:
+            print('No data found.')
+            return
+        for i in range(len(values)):
+            if len(values[i]) > 0 and i > 0 and values[i][0] == '':
+                values[i][0] = values[i - 1][0]
+        df = pd.DataFrame(values)
+        df.columns = df.iloc[0]
+        df = df[1:]
+        mask = (df['Date and time'] == time) & (df['Student'].isna())
+        df.loc[mask.idxmax(), ['Student', "Student's phone number ", 'telegram']] = [student.name, student.phone, student.nickname]
+        range_body_values = {
+            'value_input_option': 'USER_ENTERED',
+            'data': [
+                {
+                    'majorDimension': 'ROWS',
+                    'range': 'Tutor time!E2:G60',
+                    'values': df[['Student', "Student's phone number ", 'telegram']].values.tolist()
+                },
+            ]}
+        service.spreadsheets().values().batchUpdate(spreadsheetId=read_config("SAMPLE_SPREADSHEET_ID"),
+                                                    body=range_body_values).execute()
+
+    except HttpError as err:
+        print(err)
+
+
+INTRODUCTION_TEXT, REGISTRATION_TEXT, ASK_NAME_TEXT, ASK_PHONE_TEXT, ASK_SEX_TEXT, ASK_UNI_TEXT, ASK_COURSE_TEXT, ASK_VISITED_TEXT, SPECIFY_VISITED_TEXT, ASK_HOW_COME_TEXT, ASK_ENGLISH_LEVEL_TEXT, ASK_RELIGIOUS_TEXT, END_REGISTRATION_TEXT, LOCATION_TEXT, SCHEDULE_TEXT, INTERVIEW_TEXT, TUTOR_TIME_TEXT, ABOUT_US_TEXT, CONNECT_TEXT, INVALID_REGISTRATION_TEXT, TUTOR_TIME_REGISTRATION_TEXT, TUTOR_TIME_REGISTERED_TEXT, INVALID_TUTOR_TIME_REGISTRATION_TEXT = get_questions()
 
 
 def get_chats():
-    creds = None
-    scopes = [read_config("SCOPES")]
-    if os.path.exists('token.json'):
-        creds = Credentials.from_authorized_user_file('token.json', scopes)
-    if not creds or not creds.valid:
-        if creds and creds.expired and creds.refresh_token:
-            creds.refresh(Request())
-        else:
-            flow = InstalledAppFlow.from_client_secrets_file(
-                'credentials.json', scopes)
-            creds = flow.run_local_server(port=0)
-        with open('token.json', 'w') as token:
-            token.write(creds.to_json())
-
     try:
-        service = build('sheets', 'v4', credentials=creds)
+        service = build('sheets', 'v4', credentials=connect_to_spreadsheets())
         sheet = service.spreadsheets()
         questions = sheet.values().get(spreadsheetId=read_config("SAMPLE_SPREADSHEET_ID"),
                                        range='Реєстрація!A2:A1000').execute()
@@ -193,10 +271,9 @@ def ask_phone(update, context):
 
 
 def ask_sex(update, context):
-    if context.user_data.get('name') is None:
+    if context.user_data.get('phone') is None:
         phone = update.message.text
         if not (len(phone) == 12 and phone.isdigit()):
-            print('true')
             return ask_phone(update, context)
         context.user_data['phone'] = phone
     keyboard = [[KeyboardButton('Чол'), KeyboardButton('Жін')]]
@@ -286,7 +363,6 @@ def exit_conversation(update, context):
     context.user_data['religious'] = update.message.text
     update.message.reply_text(END_REGISTRATION_TEXT)
     add_to_spreadsheets(list(context.user_data.values()))
-    print(context.user_data.values())
     show_menu(update, context)
     return ConversationHandler.END
 
@@ -302,8 +378,7 @@ def spam_message(update, context):
     return 0
 
 
-def ask_message_text(update, context):
-    print('hello')
+def ask_spam_message_text(update, context):
     chats = get_chats()
     print(chats)
     try:
@@ -338,7 +413,9 @@ def send_interview(update, context):
 
 
 def send_tutor_time(update, context):
-    context.bot.send_message(chat_id=update.message.chat_id, text=TUTOR_TIME_TEXT)
+    reply_markup = InlineKeyboardMarkup(
+        [[InlineKeyboardButton('Зареєструватись на тютор тайм', callback_data='tutor_time_register')]])
+    context.bot.send_message(chat_id=update.message.chat_id, text=TUTOR_TIME_TEXT, reply_markup=reply_markup)
 
 
 def send_about_us(update, context):
@@ -347,6 +424,32 @@ def send_about_us(update, context):
 
 def send_connect(update, context):
     context.bot.send_message(chat_id=update.message.chat_id, text=CONNECT_TEXT)
+
+
+def tutor_time_register(update, context):
+    query = update.callback_query
+    student = find_student(query.message.chat_id)
+    if when_student_has_tutor_time(student) != '':
+        text = f'{INVALID_TUTOR_TIME_REGISTRATION_TEXT} {when_student_has_tutor_time(student)}'
+        query.answer(text)
+        context.bot.send_message(query.message.chat_id, text=text)
+        return
+    query.answer()
+    button_names = available_tutor_times()
+    buttons = []
+    for element in button_names:
+        buttons.append([InlineKeyboardButton(text=element, callback_data=element)])
+    reply_markup = InlineKeyboardMarkup(buttons)
+    query.edit_message_text(query.message.text + '\n\n' + TUTOR_TIME_REGISTRATION_TEXT, reply_markup=reply_markup)
+
+
+def record_tutor_time(update, context):
+    query = update.callback_query
+    text = f'{TUTOR_TIME_REGISTERED_TEXT} {query.data}'
+    add_student_to_tutor_time(find_student(query.message.chat_id), query.data)
+    query.answer(text=text)
+    query.edit_message_reply_markup(reply_markup=None)
+    context.bot.send_message(query.message.chat_id, text=text)
 
 
 def main():
@@ -364,7 +467,7 @@ def main():
     send_spam_conversation_handler = ConversationHandler(
         entry_points=[MessageHandler(Filters.text('spam_message'), spam_message)],
         states={
-            0: [MessageHandler(Filters.all, ask_message_text)],
+            0: [MessageHandler(Filters.all, ask_spam_message_text)],
         },
         fallbacks=[]
     )
@@ -387,6 +490,8 @@ def main():
     )
     dispatcher.add_handler(register_conversation_handler)
     dispatcher.add_handler(send_spam_conversation_handler)
+    dispatcher.add_handler(CallbackQueryHandler(tutor_time_register, pattern='tutor_time_register'))
+    dispatcher.add_handler(CallbackQueryHandler(record_tutor_time))
     updater.start_polling()
     updater.idle()
 
