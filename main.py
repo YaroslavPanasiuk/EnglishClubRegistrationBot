@@ -93,9 +93,8 @@ def get_questions():
         service = build('sheets', 'v4', credentials=connect_to_spreadsheets())
         sheet = service.spreadsheets()
         questions = sheet.values().get(spreadsheetId=read_config("SAMPLE_SPREADSHEET_ID"),
-                                       range='Питання!B2:B30').execute()
+                                       range='Питання!B2:B40').execute()
         values = questions.get('values', [])
-
         if not values:
             print('No data found.')
             return
@@ -119,9 +118,6 @@ def available_tutor_times():
         if not values:
             print('No data found.')
             return
-        for i in range(len(values)):
-            if len(values[i]) > 0 and i > 0 and values[i][0] == '':
-                values[i][0] = values[i - 1][0]
         df = pd.DataFrame(values)
         df.columns = df.iloc[0]
         df = df[1:]
@@ -146,6 +142,8 @@ def find_student(telegram_id):
         df = pd.DataFrame(values)
         df.columns = df.iloc[0]
         df = df[1:]
+        if not df.loc[df['id'] == str(telegram_id)].values.flatten().tolist():
+            return None
         return Student(df.loc[df['id'] == str(telegram_id)].values.flatten().tolist())
 
     except HttpError as err:
@@ -162,16 +160,11 @@ def when_student_has_tutor_time(student: Student):
         if not values:
             print('No data found.')
             return
-        for i in range(len(values)):
-            if len(values[i]) == 0:
-                continue
-            if values[i][0] == '' and i > 0:
-                values[i][0] = values[i-1][0]
         df = pd.DataFrame(values)
         df.columns = df.iloc[0]
         df = df[1:]
         mask = ((df['Student'] == student.name) & (df["Student's phone number "] == student.phone) &
-                (df['telegram'] == student.nickname))
+                ((df['telegram'] == student.nickname) | ((df['telegram'].isna()) & (student.nickname == ''))))
         if len(df.loc[mask, "Date and time"]) == 0:
             return ''
         return str(df.loc[mask.idxmax(), "Date and time"])
@@ -190,9 +183,6 @@ def add_student_to_tutor_time(student: Student, time: str):
         if not values:
             print('No data found.')
             return
-        for i in range(len(values)):
-            if len(values[i]) > 0 and i > 0 and values[i][0] == '':
-                values[i][0] = values[i - 1][0]
         df = pd.DataFrame(values)
         df.columns = df.iloc[0]
         df = df[1:]
@@ -214,7 +204,7 @@ def add_student_to_tutor_time(student: Student, time: str):
         print(err)
 
 
-INTRODUCTION_TEXT, REGISTRATION_TEXT, ASK_NAME_TEXT, ASK_PHONE_TEXT, ASK_SEX_TEXT, ASK_UNI_TEXT, ASK_COURSE_TEXT, ASK_VISITED_TEXT, SPECIFY_VISITED_TEXT, ASK_HOW_COME_TEXT, ASK_ENGLISH_LEVEL_TEXT, ASK_RELIGIOUS_TEXT, END_REGISTRATION_TEXT, LOCATION_TEXT, SCHEDULE_TEXT, INTERVIEW_TEXT, TUTOR_TIME_TEXT, ABOUT_US_TEXT, CONNECT_TEXT, INVALID_REGISTRATION_TEXT, TUTOR_TIME_REGISTRATION_TEXT, TUTOR_TIME_REGISTERED_TEXT, INVALID_TUTOR_TIME_REGISTRATION_TEXT = get_questions()
+INTRODUCTION_TEXT, REGISTRATION_TEXT, ASK_NAME_TEXT, ASK_PHONE_TEXT, ASK_SEX_TEXT, ASK_UNI_TEXT, ASK_COURSE_TEXT, ASK_VISITED_TEXT, SPECIFY_VISITED_TEXT, ASK_HOW_COME_TEXT, ASK_ENGLISH_LEVEL_TEXT, ASK_RELIGIOUS_TEXT, END_REGISTRATION_TEXT, LOCATION_TEXT, SCHEDULE_TEXT, INTERVIEW_TEXT, TUTOR_TIME_TEXT, ABOUT_US_TEXT, CONNECT_TEXT, INVALID_REGISTRATION_TEXT, TUTOR_TIME_REGISTRATION_TEXT, TUTOR_TIME_REGISTERED_TEXT, INVALID_TUTOR_TIME_REGISTRATION_TEXT, UNREGISTERED_TUTOR_TIME_REGISTRATION_TEXT = get_questions()
 
 
 def get_chats():
@@ -385,7 +375,8 @@ def ask_spam_message_text(update, context):
         for chat in chats:
             context.bot.send_message(chat_id=int(chat), text=update.message.text)
             time.sleep(1)
-        context.bot.send_message(chat_id=update.message.chat_id, text='sent')
+            context.bot.send_message(chat_id=update.message.chat_id, text='sent')
+        context.bot.send_message(chat_id=update.message.chat_id, text='sentAll')
     except:
         context.bot.send_message(chat_id=int(read_config('ADMIN_ID')), text=traceback.format_exc())
     finally:
@@ -429,6 +420,11 @@ def send_connect(update, context):
 def tutor_time_register(update, context):
     query = update.callback_query
     student = find_student(query.message.chat_id)
+    if student is None:
+        text = UNREGISTERED_TUTOR_TIME_REGISTRATION_TEXT
+        query.answer(text)
+        context.bot.send_message(query.message.chat_id, text=text)
+        return
     if when_student_has_tutor_time(student) != '':
         text = f'{INVALID_TUTOR_TIME_REGISTRATION_TEXT} {when_student_has_tutor_time(student)}'
         query.answer(text)
