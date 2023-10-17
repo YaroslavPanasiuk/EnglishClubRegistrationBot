@@ -370,12 +370,12 @@ def spam_message(update, context):
 
 def ask_spam_message_text(update, context):
     chats = get_chats()
-    print(chats)
     try:
         for chat in chats:
             context.bot.send_message(chat_id=int(chat), text=update.message.text)
             time.sleep(1)
             context.bot.send_message(chat_id=update.message.chat_id, text='sent')
+            time.sleep(1)
         context.bot.send_message(chat_id=update.message.chat_id, text='sentAll')
     except:
         context.bot.send_message(chat_id=int(read_config('ADMIN_ID')), text=traceback.format_exc())
@@ -450,7 +450,7 @@ def record_tutor_time(update, context):
 
 def main():
     print("start")
-    updater = Updater(read_config("BOT_TOKEN"), use_context=True)
+    updater = Updater(read_config("TEST_BOT_TOKEN"), use_context=True)
     dispatcher = updater.dispatcher
     dispatcher.add_handler(CommandHandler('start', start_command))
     dispatcher.add_handler(CommandHandler('menu', show_menu))
