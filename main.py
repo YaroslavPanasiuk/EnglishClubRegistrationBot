@@ -72,7 +72,7 @@ def add_to_spreadsheets(data: []):
         sheet = service.spreadsheets()
         students = sheet.values().get(spreadsheetId=read_config("SAMPLE_SPREADSHEET_ID"),
                                       range=read_config("SAMPLE_RANGE_NAME")).execute()
-        data_range = 'A{0}:K{0}'.format(str(len(students.get('values', [])) + 1))
+        data_range = 'A{0}:L{0}'.format(str(len(students.get('values', [])) + 1))
         range_body_values = {
             'value_input_option': 'USER_ENTERED',
             'data': [
@@ -204,7 +204,7 @@ def add_student_to_tutor_time(student: Student, time: str):
         print(err)
 
 
-INTRODUCTION_TEXT, REGISTRATION_TEXT, ASK_NAME_TEXT, ASK_PHONE_TEXT, ASK_SEX_TEXT, ASK_UNI_TEXT, ASK_COURSE_TEXT, ASK_VISITED_TEXT, SPECIFY_VISITED_TEXT, ASK_HOW_COME_TEXT, ASK_ENGLISH_LEVEL_TEXT, ASK_RELIGIOUS_TEXT, END_REGISTRATION_TEXT, LOCATION_TEXT, SCHEDULE_TEXT, INTERVIEW_TEXT, TUTOR_TIME_TEXT, ABOUT_US_TEXT, CONNECT_TEXT, INVALID_REGISTRATION_TEXT, TUTOR_TIME_REGISTRATION_TEXT, TUTOR_TIME_REGISTERED_TEXT, INVALID_TUTOR_TIME_REGISTRATION_TEXT, UNREGISTERED_TUTOR_TIME_REGISTRATION_TEXT = get_questions()
+INTRODUCTION_TEXT, ASK_NAME_TEXT, ASK_PHONE_TEXT, ASK_SEX_TEXT, ASK_UNI_TEXT, ASK_COURSE_TEXT, ASK_VISITED_TEXT, SPECIFY_VISITED_TEXT, ASK_HOW_COME_TEXT, ASK_ENGLISH_LEVEL_TEXT, ASK_RELIGIOUS_TEXT, END_REGISTRATION_TEXT, LOCATION_TEXT, SCHEDULE_TEXT, INTERVIEW_TEXT, TUTOR_TIME_TEXT, ABOUT_US_TEXT, CONNECT_TEXT, INVALID_REGISTRATION_TEXT, TUTOR_TIME_REGISTRATION_TEXT, TUTOR_TIME_REGISTERED_TEXT, INVALID_TUTOR_TIME_REGISTRATION_TEXT, UNREGISTERED_TUTOR_TIME_REGISTRATION_TEXT = get_questions()
 
 
 def get_chats():
@@ -228,24 +228,16 @@ def get_chats():
 
 
 def start_command(update, context):
-    keyboard = [[KeyboardButton('Зареєструватись🙌')]]
-    context.bot.send_message(chat_id=update.message.chat_id, text=INTRODUCTION_TEXT,
-                             reply_markup=ReplyKeyboardMarkup(keyboard, one_time_keyboard=True))
-
-
-def register(update, context):
-    if get_chats().__contains__(str(update.message.chat_id)):
-        context.bot.send_message(chat_id=update.message.chat_id, text=INVALID_REGISTRATION_TEXT)
-        return ConversationHandler.END
-    keyboard = [[KeyboardButton('Так!')]]
-    context.bot.send_message(chat_id=update.message.chat_id, text=REGISTRATION_TEXT,
-                             reply_markup=ReplyKeyboardMarkup(keyboard, one_time_keyboard=True))
-    context.user_data['id'] = str(update.message.chat_id)
-    return ENTER_NAME
+    keyboard = [[KeyboardButton('Зареєструватись 🙌')]]
+    context.bot.send_message(chat_id=update.message.chat_id, text=INTRODUCTION_TEXT, parse_mode=ParseMode.HTML,
+                             reply_markup=ReplyKeyboardMarkup(keyboard, one_time_keyboard=True, resize_keyboard=True))
 
 
 def ask_name(update, context):
-    context.user_data['nickname'] = update.message.from_user.username
+    if get_chats().__contains__(str(update.message.chat_id)):
+        context.bot.send_message(chat_id=update.message.chat_id, text=INVALID_REGISTRATION_TEXT)
+        return ConversationHandler.ENDпше 
+    context.user_data['id'] = update.message.chat_id
     update.message.reply_text(ASK_NAME_TEXT)
     return ENTER_PHONE
 
@@ -266,9 +258,10 @@ def ask_sex(update, context):
         if not (len(phone) == 12 and phone.isdigit()):
             return ask_phone(update, context)
         context.user_data['phone'] = phone
+        context.user_data['nickname'] = update.message.from_user.username
     keyboard = [[KeyboardButton('Чол'), KeyboardButton('Жін')]]
     context.bot.send_message(chat_id=update.message.chat_id, text=ASK_SEX_TEXT,
-                             reply_markup=ReplyKeyboardMarkup(keyboard, one_time_keyboard=True))
+                             reply_markup=ReplyKeyboardMarkup(keyboard, one_time_keyboard=True, resize_keyboard=True))
     return ENTER_UNI
 
 
@@ -304,7 +297,7 @@ def ask_visited(update, context):
     context.user_data['course'] = update.message.text
     keyboard = [[KeyboardButton('Так'), KeyboardButton('НІ')]]
     context.bot.send_message(chat_id=update.message.chat_id, text=ASK_VISITED_TEXT,
-                             reply_markup=ReplyKeyboardMarkup(keyboard, one_time_keyboard=True))
+                             reply_markup=ReplyKeyboardMarkup(keyboard, one_time_keyboard=True, resize_keyboard=True))
     return SPECIFY_VISITED
 
 
@@ -318,7 +311,7 @@ def specify_visited(update, context):
 
 def ask_how_come(update, context):
     if context.user_data['visited'] == 'Так':
-        context.user_data['visited'] = update.message.text
+        context.user_data['specified_visited'] = update.message.text
     keyboard = [[KeyboardButton('Флаєр')], [KeyboardButton('Постер')], [KeyboardButton('Друзі запросили')],
                 [KeyboardButton('Реклама Instagram')], [KeyboardButton('Реклама Telegram')]]
     context.bot.send_message(chat_id=update.message.chat_id, text=ASK_HOW_COME_TEXT,
@@ -384,10 +377,10 @@ def ask_spam_message_text(update, context):
 
 
 def show_menu(update, context):
-    keyboard = [[KeyboardButton('Зареєструватись🙌'), KeyboardButton('Локація🧭')],
-                [KeyboardButton('Розклад📅'), KeyboardButton('Співбесіда')],
+    keyboard = [[KeyboardButton('Зареєструватись 🙌'), KeyboardButton('Локація 🧭')],
+                [KeyboardButton('Розклад 📅'), KeyboardButton('Співбесіда')],
                 [KeyboardButton('Tutor time'), KeyboardButton('Про нас')],
-                [KeyboardButton("Зв'язок📱")]]
+                [KeyboardButton("Маю питання 📱")]]
     context.bot.send_message(chat_id=update.message.chat_id, text='Меню', reply_markup=ReplyKeyboardMarkup(keyboard))
 
 
@@ -450,16 +443,16 @@ def record_tutor_time(update, context):
 
 def main():
     print("start")
-    updater = Updater(read_config("TEST_BOT_TOKEN"), use_context=True)
+    updater = Updater(read_config("BOT_TOKEN"), use_context=True)
     dispatcher = updater.dispatcher
     dispatcher.add_handler(CommandHandler('start', start_command))
     dispatcher.add_handler(CommandHandler('menu', show_menu))
-    dispatcher.add_handler(MessageHandler(Filters.text('Локація🧭'), send_location))
-    dispatcher.add_handler(MessageHandler(Filters.text('Розклад📅'), send_schedule))
+    dispatcher.add_handler(MessageHandler(Filters.text('Локація 🧭'), send_location))
+    dispatcher.add_handler(MessageHandler(Filters.text('Розклад 📅'), send_schedule))
     dispatcher.add_handler(MessageHandler(Filters.text('Співбесіда'), send_interview))
     dispatcher.add_handler(MessageHandler(Filters.text('Tutor time'), send_tutor_time))
     dispatcher.add_handler(MessageHandler(Filters.text('Про нас'), send_about_us))
-    dispatcher.add_handler(MessageHandler(Filters.text("Зв'язок📱"), send_connect))
+    dispatcher.add_handler(MessageHandler(Filters.text("Маю питання 📱"), send_connect))
     send_spam_conversation_handler = ConversationHandler(
         entry_points=[MessageHandler(Filters.text('spam_message'), spam_message)],
         states={
@@ -468,9 +461,8 @@ def main():
         fallbacks=[]
     )
     register_conversation_handler = ConversationHandler(
-        entry_points=[MessageHandler(Filters.text('Зареєструватись🙌'), register)],
+        entry_points=[MessageHandler(Filters.text('Зареєструватись 🙌'), ask_name)],
         states={
-            ENTER_NAME: [MessageHandler(Filters.all, ask_name)],
             ENTER_PHONE: [MessageHandler(Filters.all, ask_phone)],
             ENTER_SEX: [MessageHandler(Filters.all, ask_sex)],
             ENTER_UNI: [MessageHandler(Filters.all, ask_uni)],
