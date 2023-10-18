@@ -67,7 +67,40 @@ def connect_to_spreadsheets():
     return creds
 
 
-def add_to_spreadsheets(data: []):
+def get_spreadsheets_data():
+    try:
+        service = build('sheets', 'v4', credentials=connect_to_spreadsheets())
+        sheet = service.spreadsheets()
+        registered_users = sheet.values().get(spreadsheetId=read_config("SAMPLE_SPREADSHEET_ID"),
+                                              range='Реєстрація!A1:R500').execute().get('values', [])
+        questions = (sheet.values().get(spreadsheetId=read_config("SAMPLE_SPREADSHEET_ID"),
+                                       range='Питання!B2:B50').execute()).get('values', [])
+        questions_values = [x for y in questions for x in y]
+
+        tutor_times = sheet.values().get(spreadsheetId=read_config("SAMPLE_SPREADSHEET_ID"),
+                                       range='Tutor time!A1:H60').execute().get('values', [])
+        if not registered_users:
+            print('No users found.')
+            return
+        if not questions_values:
+            print('No questions found.')
+            return
+        if not tutor_times:
+            print('No tutor_times found.')
+            return
+        users_df = pd.DataFrame(registered_users)
+        users_df.columns = users_df.iloc[0]
+        users_df = users_df[1:]
+        tutor_times_df = pd.DataFrame(tutor_times)
+        tutor_times_df.columns = tutor_times_df.iloc[0]
+        tutor_times_df = tutor_times_df[1:]
+        return {'registered_users': users_df, 'questions': questions_values, 'tutor_times': tutor_times_df}
+
+    except HttpError as err:
+        print(err)
+
+
+def add_student(data: []):
     try:
         service = build('sheets', 'v4', credentials=connect_to_spreadsheets())
         sheet = service.spreadsheets()
@@ -89,104 +122,32 @@ def add_to_spreadsheets(data: []):
         print(err)
 
 
-def get_questions():
-    try:
-        service = build('sheets', 'v4', credentials=connect_to_spreadsheets())
-        sheet = service.spreadsheets()
-        questions = sheet.values().get(spreadsheetId=read_config("SAMPLE_SPREADSHEET_ID"),
-                                       range='Питання!B2:B40').execute()
-        values = questions.get('values', [])
-        if not values:
-            print('No data found.')
-            return
-        result = []
-        for value in values:
-            result.append(value[0])
-        return result
-
-    except HttpError as err:
-        print(err)
-
-
 def available_tutor_times():
-    try:
-        service = build('sheets', 'v4', credentials=connect_to_spreadsheets())
-        sheet = service.spreadsheets()
-        questions = sheet.values().get(spreadsheetId=read_config("SAMPLE_SPREADSHEET_ID"),
-                                       range='Tutor time!A1:H60').execute()
-        values = questions.get('values', [])
-
-        if not values:
-            print('No data found.')
-            return
-        df = pd.DataFrame(values)
-        df.columns = df.iloc[0]
-        df = df[1:]
-        mask = ((df['Student'] == '') | (df['Student'].isna())) & (df['Date and time'] != '') & (df['Date and time'].notna())
-        return list(collections.OrderedDict.fromkeys(df.loc[mask, 'Date and time']))
-
-    except HttpError as err:
-        print(err)
+    df = get_spreadsheets_data().get('tutor_times')
+    mask = ((df['Student'] == '') | (df['Student'].isna())) & (df['Date and time'] != '') & (df['Date and time'].notna())
+    return list(collections.OrderedDict.fromkeys(df.loc[mask, 'Date and time']))
 
 
 def find_student(telegram_id):
-    try:
-        service = build('sheets', 'v4', credentials=connect_to_spreadsheets())
-        sheet = service.spreadsheets()
-        questions = sheet.values().get(spreadsheetId=read_config("SAMPLE_SPREADSHEET_ID"),
-                                       range='Реєстрація!A1:R500').execute()
-        values = questions.get('values', [])
-
-        if not values:
-            print('No data found.')
-            return
-        df = pd.DataFrame(values)
-        df.columns = df.iloc[0]
-        df = df[1:]
-        if not df.loc[df['id'] == str(telegram_id)].values.flatten().tolist():
-            return None
-        return Student(df.loc[df['id'] == str(telegram_id)].values.flatten().tolist())
-
-    except HttpError as err:
-        print(err)
+    df = get_spreadsheets_data().get('registered_users')
+    if not df.loc[df['id'] == str(telegram_id)].values.flatten().tolist():
+        return None
+    return Student(df.loc[df['id'] == str(telegram_id)].values.flatten().tolist())
 
 
 def when_student_has_tutor_time(student: Student):
-    try:
-        service = build('sheets', 'v4', credentials=connect_to_spreadsheets())
-        sheet = service.spreadsheets()
-        questions = sheet.values().get(spreadsheetId=read_config("SAMPLE_SPREADSHEET_ID"),
-                                       range='Tutor time!A1:G60').execute()
-        values = questions.get('values', [])
-        if not values:
-            print('No data found.')
-            return
-        df = pd.DataFrame(values)
-        df.columns = df.iloc[0]
-        df = df[1:]
-        mask = ((df['Student'] == student.name) & (df["Student's phone number "] == student.phone) &
-                ((df['telegram'] == student.nickname) | ((df['telegram'].isna()) & (student.nickname == ''))))
-        if len(df.loc[mask, "Date and time"]) == 0:
-            return ''
-        return str(df.loc[mask.idxmax(), "Date and time"])
-
-    except HttpError as err:
-        print(err)
+    df = get_spreadsheets_data().get('tutor_times')
+    mask = ((df['Student'] == student.name) & (df["Student's phone number "] == student.phone) &
+            ((df['telegram'] == student.nickname) | ((df['telegram'].isna()) & (student.nickname == ''))))
+    if len(df.loc[mask, "Date and time"]) == 0:
+        return ''
+    return str(df.loc[mask.idxmax(), "Date and time"])
 
 
 def add_student_to_tutor_time(student: Student, tutor_time: str):
     try:
         service = build('sheets', 'v4', credentials=connect_to_spreadsheets())
-        sheet = service.spreadsheets()
-        questions = sheet.values().get(spreadsheetId=read_config("SAMPLE_SPREADSHEET_ID"),
-                                       range='Tutor time!A1:G60').execute()
-        values = questions.get('values', [])
-        if not values:
-            print('No data found.')
-            return
-        df = pd.DataFrame(values)
-        df.columns = df.iloc[0]
-        df = df[1:]
+        df = get_spreadsheets_data().get('tutor_times')
         mask = (df['Date and time'] == tutor_time) & (df['Student'].isna())
         df.loc[mask.idxmax(), ['Student', "Student's phone number ", 'telegram']] = [student.name, student.phone, student.nickname]
         range_body_values = {
@@ -205,32 +166,16 @@ def add_student_to_tutor_time(student: Student, tutor_time: str):
         print(err)
 
 
-INTRODUCTION_TEXT, ASK_NAME_TEXT, ASK_PHONE_TEXT, ASK_SEX_TEXT, ASK_UNI_TEXT, ASK_COURSE_TEXT, ASK_VISITED_TEXT, SPECIFY_VISITED_TEXT, ASK_HOW_COME_TEXT, ASK_ENGLISH_LEVEL_TEXT, ASK_RELIGIOUS_TEXT, END_REGISTRATION_TEXT, LOCATION_TEXT, SCHEDULE_TEXT, INTERVIEW_TEXT, TUTOR_TIME_TEXT, ABOUT_US_TEXT, GOT_QUESTIONS_TEXT, INVALID_REGISTRATION_TEXT, TUTOR_TIME_REGISTRATION_TEXT, TUTOR_TIME_REGISTERED_TEXT, INVALID_TUTOR_TIME_REGISTRATION_TEXT, UNREGISTERED_TUTOR_TIME_REGISTRATION_TEXT, REGISTRATION_BUTTON_TEXT, LOCATION_BUTTON_TEXT, SCHEDULE_BUTTON_TEXT, INTERVIEW_BUTTON_TEXT, TUTOR_TIME_BUTTON_TEXT, ABOUT_US_BUTTON_TEXT, GOT_QUESTIONS_BUTTON_TEXT = get_questions()
+INTRODUCTION_TEXT, ASK_NAME_TEXT, ASK_PHONE_TEXT, ASK_SEX_TEXT, ASK_UNI_TEXT, ASK_COURSE_TEXT, ASK_VISITED_TEXT, SPECIFY_VISITED_TEXT, ASK_HOW_COME_TEXT, ASK_ENGLISH_LEVEL_TEXT, ASK_RELIGIOUS_TEXT, END_REGISTRATION_TEXT, LOCATION_TEXT, SCHEDULE_TEXT, INTERVIEW_TEXT, TUTOR_TIME_TEXT, ABOUT_US_TEXT, GOT_QUESTIONS_TEXT, INVALID_REGISTRATION_TEXT, TUTOR_TIME_REGISTRATION_TEXT, TUTOR_TIME_REGISTERED_TEXT, INVALID_TUTOR_TIME_REGISTRATION_TEXT, UNREGISTERED_TUTOR_TIME_REGISTRATION_TEXT, REGISTRATION_BUTTON_TEXT, LOCATION_BUTTON_TEXT, SCHEDULE_BUTTON_TEXT, INTERVIEW_BUTTON_TEXT, TUTOR_TIME_BUTTON_TEXT, ABOUT_US_BUTTON_TEXT, GOT_QUESTIONS_BUTTON_TEXT, TUTOR_TIME_REGISTRATION_BUTTON_TEXT = get_spreadsheets_data().get('questions')
 
 
 def get_chats():
-    try:
-        service = build('sheets', 'v4', credentials=connect_to_spreadsheets())
-        sheet = service.spreadsheets()
-        questions = sheet.values().get(spreadsheetId=read_config("SAMPLE_SPREADSHEET_ID"),
-                                       range='Реєстрація!A2:A1000').execute()
-        values = questions.get('values', [])
-
-        if not values:
-            print('No data found.')
-            return
-        result = []
-        for value in values:
-            if len(value) > 0:
-                result.append(value[0])
-        return set(result)
-
-    except HttpError as err:
-        print(err)
+    df = get_spreadsheets_data().get('registered_users')
+    return df.loc[(df['id'] != '') & (df['id'].notna()), 'id'].values
 
 
 def start_command(update, context):
-    keyboard = [[KeyboardButton('Зареєструватись 🙌')]]
+    keyboard = [[KeyboardButton(REGISTRATION_BUTTON_TEXT)]]
     context.bot.send_message(chat_id=update.message.chat_id, text=INTRODUCTION_TEXT, parse_mode=ParseMode.HTML,
                              reply_markup=ReplyKeyboardMarkup(keyboard, one_time_keyboard=True, resize_keyboard=True))
 
@@ -239,13 +184,14 @@ def ask_name(update, context):
     if get_chats().__contains__(str(update.message.chat_id)):
         context.bot.send_message(chat_id=update.message.chat_id, text=INVALID_REGISTRATION_TEXT)
         return ConversationHandler.END
+    context.user_data.clear()
     context.user_data['id'] = update.message.chat_id
     update.message.reply_text(ASK_NAME_TEXT, parse_mode=ParseMode.HTML, reply_markup=None)
     return ENTER_PHONE
 
 
 def ask_phone(update, context):
-    if context.user_data.get('name') is None:
+    if context.user_data.get('phone') is None:
         name = update.message.text.split()
         if len(name) < 2:
             return ask_name(update, context)
@@ -255,12 +201,11 @@ def ask_phone(update, context):
 
 
 def ask_sex(update, context):
-    if context.user_data.get('phone') is None:
-        phone = update.message.text
-        if not (len(phone) == 12 and phone.isdigit()):
-            return ask_phone(update, context)
-        context.user_data['phone'] = phone
-        context.user_data['nickname'] = update.message.from_user.username
+    phone = update.message.text
+    context.user_data['phone'] = phone
+    if not (len(phone) == 12 and phone.isdigit()):
+        return ask_phone(update, context)
+    context.user_data['nickname'] = update.message.from_user.username
     keyboard = [[KeyboardButton('Чол'), KeyboardButton('Жін')]]
     context.bot.send_message(chat_id=update.message.chat_id, text=ASK_SEX_TEXT,
                              reply_markup=ReplyKeyboardMarkup(keyboard, one_time_keyboard=True, resize_keyboard=True))
@@ -312,6 +257,7 @@ def specify_visited(update, context):
 
 
 def ask_how_come(update, context):
+    context.user_data['specified_visited'] = '-'
     if context.user_data['visited'] == 'Так':
         context.user_data['specified_visited'] = update.message.text
     keyboard = [[KeyboardButton('Флаєр')], [KeyboardButton('Постер')], [KeyboardButton('Друзі запросили')],
@@ -348,7 +294,7 @@ def exit_conversation(update, context):
     context.user_data['religious'] = update.message.text
     update.message.reply_text(END_REGISTRATION_TEXT)
     try:
-        add_to_spreadsheets(list(context.user_data.values()))
+        add_student(list(context.user_data.values()))
     except:
         context.bot.send_message(chat_id=int(read_config('ADMIN_ID')), text=traceback.format_exc())
         context.bot.send_message(chat_id=int(read_config('ADMIN_ID')), text=f'failed to register. user is {context.user_data.get("name")}')
@@ -406,7 +352,7 @@ def send_interview(update, context):
 
 def send_tutor_time(update, context):
     reply_markup = InlineKeyboardMarkup(
-        [[InlineKeyboardButton('Зареєструватись на тютор тайм', callback_data='tutor_time_register')]])
+        [[InlineKeyboardButton(TUTOR_TIME_REGISTRATION_BUTTON_TEXT, callback_data='tutor_time_register')]])
     context.bot.send_message(chat_id=update.message.chat_id, text=TUTOR_TIME_TEXT, reply_markup=None)
 
 
