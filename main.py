@@ -24,16 +24,17 @@ ENTER_NAME, ENTER_PHONE, ENTER_SEX, ENTER_UNI, ENTER_COURSE, ENTER_VISITED, SPEC
 class Student:
     def __init__(self, values: []):
         self.id = values[0]
-        self.nickname = values[1]
-        self.name = values[2]
-        self.phone = values[3]
+        self.name = values[1]
+        self.phone = values[2]
+        self.nickname = values[3]
         self.sex = values[4]
         self.uni = values[5]
         self.course = values[6]
         self.visited = values[7]
-        self.how_come = values[8]
-        self.english_level = values[9]
-        self.religious = values[10]
+        self.specified_visited = values[8]
+        self.how_come = values[9]
+        self.english_level = values[10]
+        self.religious = values[11]
 
 
 def read_config(value) -> str:
@@ -133,7 +134,7 @@ def find_student(telegram_id):
         service = build('sheets', 'v4', credentials=connect_to_spreadsheets())
         sheet = service.spreadsheets()
         questions = sheet.values().get(spreadsheetId=read_config("SAMPLE_SPREADSHEET_ID"),
-                                       range='Реєстрація!A1:K500').execute()
+                                       range='Реєстрація!A1:R500').execute()
         values = questions.get('values', [])
 
         if not values:
@@ -173,7 +174,7 @@ def when_student_has_tutor_time(student: Student):
         print(err)
 
 
-def add_student_to_tutor_time(student: Student, time: str):
+def add_student_to_tutor_time(student: Student, tutor_time: str):
     try:
         service = build('sheets', 'v4', credentials=connect_to_spreadsheets())
         sheet = service.spreadsheets()
@@ -186,7 +187,7 @@ def add_student_to_tutor_time(student: Student, time: str):
         df = pd.DataFrame(values)
         df.columns = df.iloc[0]
         df = df[1:]
-        mask = (df['Date and time'] == time) & (df['Student'].isna())
+        mask = (df['Date and time'] == tutor_time) & (df['Student'].isna())
         df.loc[mask.idxmax(), ['Student', "Student's phone number ", 'telegram']] = [student.name, student.phone, student.nickname]
         range_body_values = {
             'value_input_option': 'USER_ENTERED',
@@ -204,7 +205,7 @@ def add_student_to_tutor_time(student: Student, time: str):
         print(err)
 
 
-INTRODUCTION_TEXT, ASK_NAME_TEXT, ASK_PHONE_TEXT, ASK_SEX_TEXT, ASK_UNI_TEXT, ASK_COURSE_TEXT, ASK_VISITED_TEXT, SPECIFY_VISITED_TEXT, ASK_HOW_COME_TEXT, ASK_ENGLISH_LEVEL_TEXT, ASK_RELIGIOUS_TEXT, END_REGISTRATION_TEXT, LOCATION_TEXT, SCHEDULE_TEXT, INTERVIEW_TEXT, TUTOR_TIME_TEXT, ABOUT_US_TEXT, CONNECT_TEXT, INVALID_REGISTRATION_TEXT, TUTOR_TIME_REGISTRATION_TEXT, TUTOR_TIME_REGISTERED_TEXT, INVALID_TUTOR_TIME_REGISTRATION_TEXT, UNREGISTERED_TUTOR_TIME_REGISTRATION_TEXT = get_questions()
+INTRODUCTION_TEXT, ASK_NAME_TEXT, ASK_PHONE_TEXT, ASK_SEX_TEXT, ASK_UNI_TEXT, ASK_COURSE_TEXT, ASK_VISITED_TEXT, SPECIFY_VISITED_TEXT, ASK_HOW_COME_TEXT, ASK_ENGLISH_LEVEL_TEXT, ASK_RELIGIOUS_TEXT, END_REGISTRATION_TEXT, LOCATION_TEXT, SCHEDULE_TEXT, INTERVIEW_TEXT, TUTOR_TIME_TEXT, ABOUT_US_TEXT, GOT_QUESTIONS_TEXT, INVALID_REGISTRATION_TEXT, TUTOR_TIME_REGISTRATION_TEXT, TUTOR_TIME_REGISTERED_TEXT, INVALID_TUTOR_TIME_REGISTRATION_TEXT, UNREGISTERED_TUTOR_TIME_REGISTRATION_TEXT, REGISTRATION_BUTTON_TEXT, LOCATION_BUTTON_TEXT, SCHEDULE_BUTTON_TEXT, INTERVIEW_BUTTON_TEXT, TUTOR_TIME_BUTTON_TEXT, ABOUT_US_BUTTON_TEXT, GOT_QUESTIONS_BUTTON_TEXT = get_questions()
 
 
 def get_chats():
@@ -220,7 +221,8 @@ def get_chats():
             return
         result = []
         for value in values:
-            result.append(value[0])
+            if len(value) > 0:
+                result.append(value[0])
         return set(result)
 
     except HttpError as err:
@@ -236,9 +238,9 @@ def start_command(update, context):
 def ask_name(update, context):
     if get_chats().__contains__(str(update.message.chat_id)):
         context.bot.send_message(chat_id=update.message.chat_id, text=INVALID_REGISTRATION_TEXT)
-        return ConversationHandler.ENDпше 
+        return ConversationHandler.END
     context.user_data['id'] = update.message.chat_id
-    update.message.reply_text(ASK_NAME_TEXT)
+    update.message.reply_text(ASK_NAME_TEXT, parse_mode=ParseMode.HTML, reply_markup=None)
     return ENTER_PHONE
 
 
@@ -345,14 +347,19 @@ def ask_religious(update, context):
 def exit_conversation(update, context):
     context.user_data['religious'] = update.message.text
     update.message.reply_text(END_REGISTRATION_TEXT)
-    add_to_spreadsheets(list(context.user_data.values()))
-    show_menu(update, context)
-    return ConversationHandler.END
+    try:
+        add_to_spreadsheets(list(context.user_data.values()))
+    except:
+        context.bot.send_message(chat_id=int(read_config('ADMIN_ID')), text=traceback.format_exc())
+        context.bot.send_message(chat_id=int(read_config('ADMIN_ID')), text=f'failed to register. user is {context.user_data.get("name")}')
+    finally:
+        show_menu(update, context)
+        return ConversationHandler.END
 
 
 def spam_message(update, context):
     if update.message.chat_id != int(read_config('ADMIN_ID')) and update.message.chat_id != int(
-            read_config('COADMIN_ID')):
+            read_config('COADMIN_ID')) and update.message.chat_id != int(read_config('COADMIN_ID_2')):
         return ConversationHandler.END
     chats = get_chats()
     context.bot.send_message(chat_id=update.message.chat_id,
@@ -367,7 +374,8 @@ def ask_spam_message_text(update, context):
         for chat in chats:
             context.bot.send_message(chat_id=int(chat), text=update.message.text)
             time.sleep(1)
-            context.bot.send_message(chat_id=update.message.chat_id, text='sent')
+            student = find_student(chat)
+            context.bot.send_message(chat_id=update.message.chat_id, text=f'sent to {student.name}, id = {student.id}')
             time.sleep(1)
         context.bot.send_message(chat_id=update.message.chat_id, text='sentAll')
     except:
@@ -377,10 +385,10 @@ def ask_spam_message_text(update, context):
 
 
 def show_menu(update, context):
-    keyboard = [[KeyboardButton('Зареєструватись 🙌'), KeyboardButton('Локація 🧭')],
-                [KeyboardButton('Розклад 📅'), KeyboardButton('Співбесіда')],
-                [KeyboardButton('Tutor time'), KeyboardButton('Про нас')],
-                [KeyboardButton("Маю питання 📱")]]
+    keyboard = [[KeyboardButton(REGISTRATION_BUTTON_TEXT), KeyboardButton(LOCATION_BUTTON_TEXT)],
+                [KeyboardButton(SCHEDULE_BUTTON_TEXT), KeyboardButton(INTERVIEW_BUTTON_TEXT)],
+                [KeyboardButton(TUTOR_TIME_BUTTON_TEXT), KeyboardButton(ABOUT_US_BUTTON_TEXT)],
+                [KeyboardButton(GOT_QUESTIONS_BUTTON_TEXT)]]
     context.bot.send_message(chat_id=update.message.chat_id, text='Меню', reply_markup=ReplyKeyboardMarkup(keyboard))
 
 
@@ -399,7 +407,7 @@ def send_interview(update, context):
 def send_tutor_time(update, context):
     reply_markup = InlineKeyboardMarkup(
         [[InlineKeyboardButton('Зареєструватись на тютор тайм', callback_data='tutor_time_register')]])
-    context.bot.send_message(chat_id=update.message.chat_id, text=TUTOR_TIME_TEXT, reply_markup=reply_markup)
+    context.bot.send_message(chat_id=update.message.chat_id, text=TUTOR_TIME_TEXT, reply_markup=None)
 
 
 def send_about_us(update, context):
@@ -407,7 +415,7 @@ def send_about_us(update, context):
 
 
 def send_connect(update, context):
-    context.bot.send_message(chat_id=update.message.chat_id, text=CONNECT_TEXT)
+    context.bot.send_message(chat_id=update.message.chat_id, text=GOT_QUESTIONS_TEXT)
 
 
 def tutor_time_register(update, context):
@@ -447,12 +455,12 @@ def main():
     dispatcher = updater.dispatcher
     dispatcher.add_handler(CommandHandler('start', start_command))
     dispatcher.add_handler(CommandHandler('menu', show_menu))
-    dispatcher.add_handler(MessageHandler(Filters.text('Локація 🧭'), send_location))
-    dispatcher.add_handler(MessageHandler(Filters.text('Розклад 📅'), send_schedule))
-    dispatcher.add_handler(MessageHandler(Filters.text('Співбесіда'), send_interview))
-    dispatcher.add_handler(MessageHandler(Filters.text('Tutor time'), send_tutor_time))
-    dispatcher.add_handler(MessageHandler(Filters.text('Про нас'), send_about_us))
-    dispatcher.add_handler(MessageHandler(Filters.text("Маю питання 📱"), send_connect))
+    dispatcher.add_handler(MessageHandler(Filters.text(LOCATION_BUTTON_TEXT), send_location))
+    dispatcher.add_handler(MessageHandler(Filters.text(SCHEDULE_BUTTON_TEXT), send_schedule))
+    dispatcher.add_handler(MessageHandler(Filters.text(INTERVIEW_BUTTON_TEXT), send_interview))
+    dispatcher.add_handler(MessageHandler(Filters.text(TUTOR_TIME_BUTTON_TEXT), send_tutor_time))
+    dispatcher.add_handler(MessageHandler(Filters.text(ABOUT_US_BUTTON_TEXT), send_about_us))
+    dispatcher.add_handler(MessageHandler(Filters.text(GOT_QUESTIONS_BUTTON_TEXT), send_connect))
     send_spam_conversation_handler = ConversationHandler(
         entry_points=[MessageHandler(Filters.text('spam_message'), spam_message)],
         states={
@@ -461,7 +469,7 @@ def main():
         fallbacks=[]
     )
     register_conversation_handler = ConversationHandler(
-        entry_points=[MessageHandler(Filters.text('Зареєструватись 🙌'), ask_name)],
+        entry_points=[MessageHandler(Filters.text(REGISTRATION_BUTTON_TEXT), ask_name)],
         states={
             ENTER_PHONE: [MessageHandler(Filters.all, ask_phone)],
             ENTER_SEX: [MessageHandler(Filters.all, ask_sex)],
