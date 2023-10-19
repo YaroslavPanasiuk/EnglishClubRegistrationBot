@@ -8,7 +8,8 @@ import time
 import traceback
 import pandas as pd
 
-from telegram import InlineKeyboardButton, InlineKeyboardMarkup, KeyboardButton, ReplyKeyboardMarkup, ParseMode
+from telegram import InlineKeyboardButton, InlineKeyboardMarkup, KeyboardButton, ReplyKeyboardMarkup, ParseMode, \
+    ReplyKeyboardRemove
 from telegram.ext import Updater, CommandHandler, MessageHandler, Filters, CallbackQueryHandler, ConversationHandler
 from google.auth.transport.requests import Request
 from google.oauth2.credentials import Credentials
@@ -191,7 +192,6 @@ def start_command(update, context):
     keyboard = [[KeyboardButton(get_text('REGISTRATION_BUTTON'))]]
     context.bot.send_message(chat_id=update.message.chat_id, text=get_text('INTRODUCTION'), parse_mode=ParseMode.HTML,
                              reply_markup=ReplyKeyboardMarkup(keyboard, one_time_keyboard=True, resize_keyboard=True))
-    update_texts()
 
 
 def ask_name(update, context):
@@ -201,7 +201,8 @@ def ask_name(update, context):
         return ConversationHandler.END
     context.user_data.clear()
     context.user_data['id'] = update.message.chat_id
-    update.message.reply_text(get_text('ASK_NAME'), parse_mode=ParseMode.HTML, reply_markup=None)
+    context.bot.send_message(chat_id=update.message.chat_id, text=get_text('ASK_NAME'),
+                             parse_mode=ParseMode.HTML, reply_markup=ReplyKeyboardRemove())
     update_texts()
     return ENTER_PHONE
 
