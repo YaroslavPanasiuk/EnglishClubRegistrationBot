@@ -197,6 +197,7 @@ def start_command(update, context):
 def ask_name(update, context):
     if get_chats().__contains__(str(update.message.chat_id)):
         context.bot.send_message(chat_id=update.message.chat_id, text=get_text('INVALID_REGISTRATION'))
+        update_texts()
         return ConversationHandler.END
     context.user_data.clear()
     context.user_data['id'] = update.message.chat_id
