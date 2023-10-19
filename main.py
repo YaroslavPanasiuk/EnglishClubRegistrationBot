@@ -9,8 +9,9 @@ import traceback
 import pandas as pd
 
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup, KeyboardButton, ReplyKeyboardMarkup, ParseMode, \
-    ReplyKeyboardRemove
-from telegram.ext import Updater, CommandHandler, MessageHandler, Filters, CallbackQueryHandler, ConversationHandler
+    ReplyKeyboardRemove, Update
+from telegram.ext import Updater, CommandHandler, MessageHandler, Filters, CallbackQueryHandler, ConversationHandler, \
+    ContextTypes
 from google.auth.transport.requests import Request
 from google.oauth2.credentials import Credentials
 from google_auth_oauthlib.flow import InstalledAppFlow
@@ -326,8 +327,11 @@ def exit_conversation(update, context):
         return ConversationHandler.END
 
 
-def finish_conversation(update, context):
-    print('end')
+def finish_conversation(update: Update, context: ContextTypes.context):
+    print('hey')
+    keyboard = [[KeyboardButton(get_text('REGISTRATION_BUTTON'))]]
+    context.bot.send_message(chat_id=update.effective_chat.id, text='Почнемо реєстрацію заново',
+                             reply_markup=ReplyKeyboardMarkup(keyboard, one_time_keyboard=True, resize_keyboard=True))
     return ConversationHandler.END
 
 
@@ -435,25 +439,25 @@ def main():
     send_spam_conversation_handler = ConversationHandler(
         entry_points=[MessageHandler(Filters.text('spam_message'), spam_message)],
         states={
-            0: [MessageHandler(Filters.all, ask_spam_message_text)],
+            0: [MessageHandler(Filters.text & (~ Filters.command), ask_spam_message_text)],
         },
         fallbacks=[]
     )
     register_conversation_handler = ConversationHandler(
         entry_points=[MessageHandler(Filters.text(get_text('REGISTRATION_BUTTON')), ask_name)],
         states={
-            ENTER_PHONE: [MessageHandler(Filters.all, ask_phone)],
-            ENTER_SEX: [MessageHandler(Filters.all, ask_sex)],
-            ENTER_UNI: [MessageHandler(Filters.all, ask_uni)],
-            ENTER_COURSE: [MessageHandler(Filters.all, ask_course)],
-            ENTER_VISITED: [MessageHandler(Filters.all, ask_visited)],
-            SPECIFY_VISITED: [MessageHandler(Filters.all, specify_visited)],
-            ENTER_HOW_COME: [MessageHandler(Filters.all, ask_how_come)],
-            ENTER_ENGLISH_LEVEL: [MessageHandler(Filters.all, ask_english_level)],
-            ENTER_RELIGIOUS: [MessageHandler(Filters.all, ask_religious)],
-            EXIT_CONVERSATION: [MessageHandler(Filters.all, exit_conversation)]
+            ENTER_PHONE: [MessageHandler(Filters.text & (~ Filters.command), ask_phone)],
+            ENTER_SEX: [MessageHandler(Filters.text & (~ Filters.command), ask_sex)],
+            ENTER_UNI: [MessageHandler(Filters.text & (~ Filters.command), ask_uni)],
+            ENTER_COURSE: [MessageHandler(Filters.text & (~ Filters.command), ask_course)],
+            ENTER_VISITED: [MessageHandler(Filters.text & (~ Filters.command), ask_visited)],
+            SPECIFY_VISITED: [MessageHandler(Filters.text & (~ Filters.command), specify_visited)],
+            ENTER_HOW_COME: [MessageHandler(Filters.text & (~ Filters.command), ask_how_come)],
+            ENTER_ENGLISH_LEVEL: [MessageHandler(Filters.text & (~ Filters.command), ask_english_level)],
+            ENTER_RELIGIOUS: [MessageHandler(Filters.text & (~ Filters.command), ask_religious)],
+            EXIT_CONVERSATION: [MessageHandler(Filters.text & (~ Filters.command), exit_conversation)]
         },
-        fallbacks=[]
+        fallbacks=[CommandHandler('restart_registration', finish_conversation)]
     )
     dispatcher.add_handler(register_conversation_handler)
     dispatcher.add_handler(send_spam_conversation_handler)
