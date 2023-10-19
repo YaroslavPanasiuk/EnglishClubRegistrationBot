@@ -174,6 +174,14 @@ def update_texts():
     file.close()
 
 
+def get_keyboard():
+    keyboard = [[KeyboardButton(get_text('REGISTRATION_BUTTON')), KeyboardButton(get_text('LOCATION_BUTTON'))],
+                [KeyboardButton(get_text('SCHEDULE_BUTTON')), KeyboardButton(get_text('INTERVIEW_BUTTON'))],
+                [KeyboardButton(get_text('TUTOR_TIME_BUTTON')), KeyboardButton(get_text('ABOUT_US_BUTTON'))],
+                [KeyboardButton(get_text('GOT_QUESTIONS_BUTTON'))]]
+    return ReplyKeyboardMarkup(keyboard)
+
+
 def get_text(text: str):
     file = open('texts.json', encoding='UTF-8')
     content = json.load(file)
@@ -196,9 +204,9 @@ def start_command(update, context):
 
 def ask_name(update, context):
     if get_chats().__contains__(str(update.message.chat_id)):
-        context.bot.send_message(chat_id=update.message.chat_id, text=get_text('INVALID_REGISTRATION'))
+        context.bot.send_message(chat_id=update.message.chat_id, text=get_text('INVALID_REGISTRATION'),
+                                 reply_markup=get_keyboard())
         update_texts()
-        show_menu(update, context)
         return ConversationHandler.END
     context.user_data.clear()
     context.user_data['id'] = update.message.chat_id
@@ -349,11 +357,7 @@ def ask_spam_message_text(update, context):
 
 
 def show_menu(update, context):
-    keyboard = [[KeyboardButton(get_text('REGISTRATION_BUTTON')), KeyboardButton(get_text('LOCATION_BUTTON'))],
-                [KeyboardButton(get_text('SCHEDULE_BUTTON')), KeyboardButton(get_text('INTERVIEW_BUTTON'))],
-                [KeyboardButton(get_text('TUTOR_TIME_BUTTON')), KeyboardButton(get_text('ABOUT_US_BUTTON'))],
-                [KeyboardButton(get_text('GOT_QUESTIONS_BUTTON'))]]
-    context.bot.send_message(chat_id=update.message.chat_id, text='Меню', reply_markup=ReplyKeyboardMarkup(keyboard))
+    context.bot.send_message(chat_id=update.message.chat_id, text='Меню', reply_markup=get_keyboard())
 
 
 def send_location(update, context):
