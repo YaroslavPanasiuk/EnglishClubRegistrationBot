@@ -239,10 +239,7 @@ def ask_sex(update, context):
 
 
 def ask_uni(update, context):
-    sex = update.message.text
-    if sex != 'Чол' and sex != 'Жін':
-        return ask_sex(update, context)
-    context.user_data['sex'] = sex
+    context.user_data['sex'] = update.message.text
     keyboard = [[KeyboardButton('Національний Університет "Львівська Політехніка"')],
                 [KeyboardButton('Львівський Національний Університет ім. І.Франка')],
                 [KeyboardButton('Національний Лісотехнічний Університет України')],
@@ -327,6 +324,11 @@ def exit_conversation(update, context):
     finally:
         show_menu(update, context)
         return ConversationHandler.END
+
+
+def finish_conversation(update, context):
+    print('end')
+    return ConversationHandler.END
 
 
 def spam_message(update, context):
@@ -451,7 +453,7 @@ def main():
             ENTER_RELIGIOUS: [MessageHandler(Filters.all, ask_religious)],
             EXIT_CONVERSATION: [MessageHandler(Filters.all, exit_conversation)]
         },
-        fallbacks=[CommandHandler('start', exit_conversation)]
+        fallbacks=[]
     )
     dispatcher.add_handler(register_conversation_handler)
     dispatcher.add_handler(send_spam_conversation_handler)
