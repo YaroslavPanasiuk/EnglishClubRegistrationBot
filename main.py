@@ -191,6 +191,7 @@ def start_command(update, context):
     keyboard = [[KeyboardButton(get_text('REGISTRATION_BUTTON'))]]
     context.bot.send_message(chat_id=update.message.chat_id, text=get_text('INTRODUCTION'), parse_mode=ParseMode.HTML,
                              reply_markup=ReplyKeyboardMarkup(keyboard, one_time_keyboard=True, resize_keyboard=True))
+    update_texts()
 
 
 def ask_name(update, context):
