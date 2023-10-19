@@ -198,6 +198,7 @@ def ask_name(update, context):
     if get_chats().__contains__(str(update.message.chat_id)):
         context.bot.send_message(chat_id=update.message.chat_id, text=get_text('INVALID_REGISTRATION'))
         update_texts()
+        show_menu(update, context)
         return ConversationHandler.END
     context.user_data.clear()
     context.user_data['id'] = update.message.chat_id
@@ -374,7 +375,7 @@ def send_tutor_time(update, context):
 
 
 def send_about_us(update, context):
-    context.bot.send_message(chat_id=update.message.chat_id, text=get_text('ABOUT_US'))
+    context.bot.send_message(chat_id=update.message.chat_id, text=get_text('ABOUT_US'), parse_mode=ParseMode.HTML)
 
 
 def send_connect(update, context):
