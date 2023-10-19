@@ -1,10 +1,9 @@
 from __future__ import print_function
 
-import asyncio
 import collections
+import json
 import os
 import os.path
-import random
 import time
 import traceback
 import pandas as pd
@@ -40,6 +39,7 @@ class Student:
 def read_config(value) -> str:
     file = open('config.txt', encoding='UTF-8')
     lines = file.readlines()
+    file.close()
     for line in lines:
         if line.split(" = ")[0] == value:
             result_lines = line.split(" = ")[1].strip().split('\\n')
@@ -73,17 +73,10 @@ def get_spreadsheets_data():
         sheet = service.spreadsheets()
         registered_users = sheet.values().get(spreadsheetId=read_config("SAMPLE_SPREADSHEET_ID"),
                                               range='Реєстрація!A1:R500').execute().get('values', [])
-        questions = (sheet.values().get(spreadsheetId=read_config("SAMPLE_SPREADSHEET_ID"),
-                                       range='Питання!B2:B50').execute()).get('values', [])
-        questions_values = [x for y in questions for x in y]
-
         tutor_times = sheet.values().get(spreadsheetId=read_config("SAMPLE_SPREADSHEET_ID"),
-                                       range='Tutor time!A1:H60').execute().get('values', [])
+                                         range='Tutor time!A1:H60').execute().get('values', [])
         if not registered_users:
             print('No users found.')
-            return
-        if not questions_values:
-            print('No questions found.')
             return
         if not tutor_times:
             print('No tutor_times found.')
@@ -94,7 +87,7 @@ def get_spreadsheets_data():
         tutor_times_df = pd.DataFrame(tutor_times)
         tutor_times_df.columns = tutor_times_df.iloc[0]
         tutor_times_df = tutor_times_df[1:]
-        return {'registered_users': users_df, 'questions': questions_values, 'tutor_times': tutor_times_df}
+        return {'registered_users': users_df, 'tutor_times': tutor_times_df}
 
     except HttpError as err:
         print(err)
@@ -166,7 +159,27 @@ def add_student_to_tutor_time(student: Student, tutor_time: str):
         print(err)
 
 
-INTRODUCTION_TEXT, ASK_NAME_TEXT, ASK_PHONE_TEXT, ASK_SEX_TEXT, ASK_UNI_TEXT, ASK_COURSE_TEXT, ASK_VISITED_TEXT, SPECIFY_VISITED_TEXT, ASK_HOW_COME_TEXT, ASK_ENGLISH_LEVEL_TEXT, ASK_RELIGIOUS_TEXT, END_REGISTRATION_TEXT, LOCATION_TEXT, SCHEDULE_TEXT, INTERVIEW_TEXT, TUTOR_TIME_TEXT, ABOUT_US_TEXT, GOT_QUESTIONS_TEXT, INVALID_REGISTRATION_TEXT, TUTOR_TIME_REGISTRATION_TEXT, TUTOR_TIME_REGISTERED_TEXT, INVALID_TUTOR_TIME_REGISTRATION_TEXT, UNREGISTERED_TUTOR_TIME_REGISTRATION_TEXT, REGISTRATION_BUTTON_TEXT, LOCATION_BUTTON_TEXT, SCHEDULE_BUTTON_TEXT, INTERVIEW_BUTTON_TEXT, TUTOR_TIME_BUTTON_TEXT, ABOUT_US_BUTTON_TEXT, GOT_QUESTIONS_BUTTON_TEXT, TUTOR_TIME_REGISTRATION_BUTTON_TEXT = get_spreadsheets_data().get('questions')
+def update_texts():
+    service = build('sheets', 'v4', credentials=connect_to_spreadsheets())
+    sheet = service.spreadsheets()
+    questions = (sheet.values().get(spreadsheetId=read_config("SAMPLE_SPREADSHEET_ID"),
+                                    range='Питання!A1:B50').execute()).get('values', [])
+    file = open("texts.json", "w", encoding='UTF-8')
+    data = pd.DataFrame(questions).values
+    dictionary = {}
+    for row in data:
+        dictionary[row[0]] = row[1]
+    file.write(json.dumps(dictionary, indent=4, ensure_ascii=False))
+    file.close()
+
+
+def get_text(text: str):
+    file = open('texts.json', encoding='UTF-8')
+    content = json.load(file)
+    file.close()
+    if content.get(text) is not None:
+        return content.get(text)
+    return ''
 
 
 def get_chats():
@@ -175,18 +188,19 @@ def get_chats():
 
 
 def start_command(update, context):
-    keyboard = [[KeyboardButton(REGISTRATION_BUTTON_TEXT)]]
-    context.bot.send_message(chat_id=update.message.chat_id, text=INTRODUCTION_TEXT, parse_mode=ParseMode.HTML,
+    keyboard = [[KeyboardButton(get_text('REGISTRATION_BUTTON'))]]
+    context.bot.send_message(chat_id=update.message.chat_id, text=get_text('INTRODUCTION'), parse_mode=ParseMode.HTML,
                              reply_markup=ReplyKeyboardMarkup(keyboard, one_time_keyboard=True, resize_keyboard=True))
 
 
 def ask_name(update, context):
     if get_chats().__contains__(str(update.message.chat_id)):
-        context.bot.send_message(chat_id=update.message.chat_id, text=INVALID_REGISTRATION_TEXT)
+        context.bot.send_message(chat_id=update.message.chat_id, text=get_text('INVALID_REGISTRATION'))
         return ConversationHandler.END
     context.user_data.clear()
     context.user_data['id'] = update.message.chat_id
-    update.message.reply_text(ASK_NAME_TEXT, parse_mode=ParseMode.HTML, reply_markup=None)
+    update.message.reply_text(get_text('ASK_NAME'), parse_mode=ParseMode.HTML, reply_markup=None)
+    update_texts()
     return ENTER_PHONE
 
 
@@ -196,7 +210,7 @@ def ask_phone(update, context):
         if len(name) < 2:
             return ask_name(update, context)
         context.user_data['name'] = update.message.text
-    update.message.reply_text(ASK_PHONE_TEXT)
+    update.message.reply_text(get_text('ASK_PHONE'))
     return ENTER_SEX
 
 
@@ -207,7 +221,7 @@ def ask_sex(update, context):
         return ask_phone(update, context)
     context.user_data['nickname'] = update.message.from_user.username
     keyboard = [[KeyboardButton('Чол'), KeyboardButton('Жін')]]
-    context.bot.send_message(chat_id=update.message.chat_id, text=ASK_SEX_TEXT,
+    context.bot.send_message(chat_id=update.message.chat_id, text=get_text('ASK_SEX'),
                              reply_markup=ReplyKeyboardMarkup(keyboard, one_time_keyboard=True, resize_keyboard=True))
     return ENTER_UNI
 
@@ -225,7 +239,7 @@ def ask_uni(update, context):
                 [KeyboardButton('Українська Академія Друкарства')],
                 ]
     context.bot.send_message(chat_id=update.message.chat_id,
-                             text=ASK_UNI_TEXT,
+                             text=get_text('ASK_UNI'),
                              reply_markup=ReplyKeyboardMarkup(keyboard, one_time_keyboard=True))
     return ENTER_COURSE
 
@@ -235,15 +249,15 @@ def ask_course(update, context):
     keyboard = [[KeyboardButton('1'), KeyboardButton('2'), KeyboardButton('3')],
                 [KeyboardButton('4'), KeyboardButton('5'), KeyboardButton('6')],
                 [KeyboardButton('Закінчив'), KeyboardButton('Школяр')]]
-    context.bot.send_message(chat_id=update.message.chat_id, text=ASK_COURSE_TEXT,
+    context.bot.send_message(chat_id=update.message.chat_id, text=get_text('ASK_COURSE'),
                              reply_markup=ReplyKeyboardMarkup(keyboard, one_time_keyboard=True))
     return ENTER_VISITED
 
 
 def ask_visited(update, context):
     context.user_data['course'] = update.message.text
-    keyboard = [[KeyboardButton('Так'), KeyboardButton('НІ')]]
-    context.bot.send_message(chat_id=update.message.chat_id, text=ASK_VISITED_TEXT,
+    keyboard = [[KeyboardButton('Так'), KeyboardButton('Ні')]]
+    context.bot.send_message(chat_id=update.message.chat_id, text=get_text('ASK_VISITED'),
                              reply_markup=ReplyKeyboardMarkup(keyboard, one_time_keyboard=True, resize_keyboard=True))
     return SPECIFY_VISITED
 
@@ -252,7 +266,7 @@ def specify_visited(update, context):
     context.user_data['visited'] = update.message.text
     if not (context.user_data['visited'] == 'Так'):
         return ask_how_come(update, context)
-    context.bot.send_message(chat_id=update.message.chat_id, text=SPECIFY_VISITED_TEXT)
+    context.bot.send_message(chat_id=update.message.chat_id, text=get_text('SPECIFY_VISITED'))
     return ENTER_HOW_COME
 
 
@@ -262,7 +276,7 @@ def ask_how_come(update, context):
         context.user_data['specified_visited'] = update.message.text
     keyboard = [[KeyboardButton('Флаєр')], [KeyboardButton('Постер')], [KeyboardButton('Друзі запросили')],
                 [KeyboardButton('Реклама Instagram')], [KeyboardButton('Реклама Telegram')]]
-    context.bot.send_message(chat_id=update.message.chat_id, text=ASK_HOW_COME_TEXT,
+    context.bot.send_message(chat_id=update.message.chat_id, text=get_text('ASK_HOW_COME'),
                              reply_markup=ReplyKeyboardMarkup(keyboard, one_time_keyboard=True))
     return ENTER_ENGLISH_LEVEL
 
@@ -275,7 +289,7 @@ def ask_english_level(update, context):
                 [KeyboardButton('можу вести діалог, але слово consciousness буду гуглити')],
                 [KeyboardButton('дивлюсь серіали англійською без субтитрів')],
                 [KeyboardButton('англійська майже як рідна')]]
-    context.bot.send_message(chat_id=update.message.chat_id, text=ASK_ENGLISH_LEVEL_TEXT,
+    context.bot.send_message(chat_id=update.message.chat_id, text=get_text('ASK_ENGLISH_LEVEL'),
                              reply_markup=ReplyKeyboardMarkup(keyboard, one_time_keyboard=True))
     return ENTER_RELIGIOUS
 
@@ -285,14 +299,14 @@ def ask_religious(update, context):
     keyboard = [[KeyboardButton('Позитивно')],
                 [KeyboardButton('Негативно')],
                 [KeyboardButton('Нейтрально')], ]
-    context.bot.send_message(chat_id=update.message.chat_id, text=ASK_RELIGIOUS_TEXT,
+    context.bot.send_message(chat_id=update.message.chat_id, text=get_text('ASK_RELIGIOUS'),
                              reply_markup=ReplyKeyboardMarkup(keyboard, one_time_keyboard=True))
     return EXIT_CONVERSATION
 
 
 def exit_conversation(update, context):
     context.user_data['religious'] = update.message.text
-    update.message.reply_text(END_REGISTRATION_TEXT)
+    update.message.reply_text(get_text('END_REGISTRATION'))
     try:
         add_student(list(context.user_data.values()))
     except:
@@ -331,49 +345,49 @@ def ask_spam_message_text(update, context):
 
 
 def show_menu(update, context):
-    keyboard = [[KeyboardButton(REGISTRATION_BUTTON_TEXT), KeyboardButton(LOCATION_BUTTON_TEXT)],
-                [KeyboardButton(SCHEDULE_BUTTON_TEXT), KeyboardButton(INTERVIEW_BUTTON_TEXT)],
-                [KeyboardButton(TUTOR_TIME_BUTTON_TEXT), KeyboardButton(ABOUT_US_BUTTON_TEXT)],
-                [KeyboardButton(GOT_QUESTIONS_BUTTON_TEXT)]]
+    keyboard = [[KeyboardButton(get_text('REGISTRATION_BUTTON')), KeyboardButton(get_text('LOCATION_BUTTON'))],
+                [KeyboardButton(get_text('SCHEDULE_BUTTON')), KeyboardButton(get_text('INTERVIEW_BUTTON'))],
+                [KeyboardButton(get_text('TUTOR_TIME_BUTTON')), KeyboardButton(get_text('ABOUT_US_BUTTON'))],
+                [KeyboardButton(get_text('GOT_QUESTIONS_BUTTON'))]]
     context.bot.send_message(chat_id=update.message.chat_id, text='Меню', reply_markup=ReplyKeyboardMarkup(keyboard))
 
 
 def send_location(update, context):
-    context.bot.send_message(chat_id=update.message.chat_id, text=LOCATION_TEXT, parse_mode=ParseMode.HTML)
+    context.bot.send_message(chat_id=update.message.chat_id, text=get_text('LOCATION'), parse_mode=ParseMode.HTML)
 
 
 def send_schedule(update, context):
-    context.bot.send_message(chat_id=update.message.chat_id, text=SCHEDULE_TEXT)
+    context.bot.send_message(chat_id=update.message.chat_id, text=get_text('SCHEDULE'))
 
 
 def send_interview(update, context):
-    context.bot.send_message(chat_id=update.message.chat_id, text=INTERVIEW_TEXT)
+    context.bot.send_message(chat_id=update.message.chat_id, text=get_text('INTERVIEW'))
 
 
 def send_tutor_time(update, context):
     reply_markup = InlineKeyboardMarkup(
-        [[InlineKeyboardButton(TUTOR_TIME_REGISTRATION_BUTTON_TEXT, callback_data='tutor_time_register')]])
-    context.bot.send_message(chat_id=update.message.chat_id, text=TUTOR_TIME_TEXT, reply_markup=None)
+        [[InlineKeyboardButton(get_text('TUTOR_TIME_REGISTRATION_BUTTON'), callback_data='tutor_time_register')]])
+    context.bot.send_message(chat_id=update.message.chat_id, text=get_text('TUTOR_TIME'), reply_markup=None)
 
 
 def send_about_us(update, context):
-    context.bot.send_message(chat_id=update.message.chat_id, text=ABOUT_US_TEXT)
+    context.bot.send_message(chat_id=update.message.chat_id, text=get_text('ABOUT_US'))
 
 
 def send_connect(update, context):
-    context.bot.send_message(chat_id=update.message.chat_id, text=GOT_QUESTIONS_TEXT)
+    context.bot.send_message(chat_id=update.message.chat_id, text=get_text('GOT_QUESTIONS'))
 
 
 def tutor_time_register(update, context):
     query = update.callback_query
     student = find_student(query.message.chat_id)
     if student is None:
-        text = UNREGISTERED_TUTOR_TIME_REGISTRATION_TEXT
+        text = get_text('UNREGISTERED_TUTOR_TIME_REGISTRATION')
         query.answer(text)
         context.bot.send_message(query.message.chat_id, text=text)
         return
     if when_student_has_tutor_time(student) != '':
-        text = f'{INVALID_TUTOR_TIME_REGISTRATION_TEXT} {when_student_has_tutor_time(student)}'
+        text = f'{get_text("INVALID_TUTOR_TIME_REGISTRATION")} {when_student_has_tutor_time(student)}'
         query.answer(text)
         context.bot.send_message(query.message.chat_id, text=text)
         return
@@ -383,12 +397,12 @@ def tutor_time_register(update, context):
     for element in button_names:
         buttons.append([InlineKeyboardButton(text=element, callback_data=element)])
     reply_markup = InlineKeyboardMarkup(buttons)
-    query.edit_message_text(query.message.text + '\n\n' + TUTOR_TIME_REGISTRATION_TEXT, reply_markup=reply_markup)
+    query.edit_message_text(query.message.text + '\n\n' + get_text('TUTOR_TIME_REGISTRATION'), reply_markup=reply_markup)
 
 
 def record_tutor_time(update, context):
     query = update.callback_query
-    text = f'{TUTOR_TIME_REGISTERED_TEXT} {query.data}'
+    text = f'{get_text("TUTOR_TIME_REGISTERED")} {query.data}'
     add_student_to_tutor_time(find_student(query.message.chat_id), query.data)
     query.answer(text=text)
     query.edit_message_reply_markup(reply_markup=None)
@@ -397,16 +411,17 @@ def record_tutor_time(update, context):
 
 def main():
     print("start")
+    update_texts()
     updater = Updater(read_config("BOT_TOKEN"), use_context=True)
     dispatcher = updater.dispatcher
     dispatcher.add_handler(CommandHandler('start', start_command))
     dispatcher.add_handler(CommandHandler('menu', show_menu))
-    dispatcher.add_handler(MessageHandler(Filters.text(LOCATION_BUTTON_TEXT), send_location))
-    dispatcher.add_handler(MessageHandler(Filters.text(SCHEDULE_BUTTON_TEXT), send_schedule))
-    dispatcher.add_handler(MessageHandler(Filters.text(INTERVIEW_BUTTON_TEXT), send_interview))
-    dispatcher.add_handler(MessageHandler(Filters.text(TUTOR_TIME_BUTTON_TEXT), send_tutor_time))
-    dispatcher.add_handler(MessageHandler(Filters.text(ABOUT_US_BUTTON_TEXT), send_about_us))
-    dispatcher.add_handler(MessageHandler(Filters.text(GOT_QUESTIONS_BUTTON_TEXT), send_connect))
+    dispatcher.add_handler(MessageHandler(Filters.text(get_text('LOCATION_BUTTON')), send_location))
+    dispatcher.add_handler(MessageHandler(Filters.text(get_text('SCHEDULE_BUTTON')), send_schedule))
+    dispatcher.add_handler(MessageHandler(Filters.text(get_text('INTERVIEW_BUTTON')), send_interview))
+    dispatcher.add_handler(MessageHandler(Filters.text(get_text('TUTOR_TIME_BUTTON')), send_tutor_time))
+    dispatcher.add_handler(MessageHandler(Filters.text(get_text('ABOUT_US_BUTTON')), send_about_us))
+    dispatcher.add_handler(MessageHandler(Filters.text(get_text('GOT_QUESTIONS_BUTTON')), send_connect))
     send_spam_conversation_handler = ConversationHandler(
         entry_points=[MessageHandler(Filters.text('spam_message'), spam_message)],
         states={
@@ -415,7 +430,7 @@ def main():
         fallbacks=[]
     )
     register_conversation_handler = ConversationHandler(
-        entry_points=[MessageHandler(Filters.text(REGISTRATION_BUTTON_TEXT), ask_name)],
+        entry_points=[MessageHandler(Filters.text(get_text('REGISTRATION_BUTTON')), ask_name)],
         states={
             ENTER_PHONE: [MessageHandler(Filters.all, ask_phone)],
             ENTER_SEX: [MessageHandler(Filters.all, ask_sex)],
