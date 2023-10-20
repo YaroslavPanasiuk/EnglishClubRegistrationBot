@@ -4,6 +4,7 @@ import collections
 import json
 import os
 import os.path
+import re
 import time
 import traceback
 import pandas as pd
@@ -96,30 +97,28 @@ def get_spreadsheets_data():
 
 
 def add_student(data: []):
-    try:
-        service = build('sheets', 'v4', credentials=connect_to_spreadsheets())
-        sheet = service.spreadsheets()
-        students = sheet.values().get(spreadsheetId=read_config("SAMPLE_SPREADSHEET_ID"),
-                                      range=read_config("SAMPLE_RANGE_NAME")).execute()
-        data_range = 'A{0}:L{0}'.format(str(len(students.get('values', [])) + 1))
-        range_body_values = {
-            'value_input_option': 'USER_ENTERED',
-            'data': [
-                {
-                    'majorDimension': 'ROWS',
-                    'range': data_range,
-                    'values': [data]
-                },
-            ]}
-        service.spreadsheets().values().batchUpdate(spreadsheetId=read_config("SAMPLE_SPREADSHEET_ID"),
-                                                    body=range_body_values).execute()
-    except HttpError as err:
-        print(err)
+    service = build('sheets', 'v4', credentials=connect_to_spreadsheets())
+    sheet = service.spreadsheets()
+    students = sheet.values().get(spreadsheetId=read_config("SAMPLE_SPREADSHEET_ID"),
+                                  range=read_config("SAMPLE_RANGE_NAME")).execute()
+    data_range = 'A{0}:L{0}'.format(str(len(students.get('values', [])) + 1))
+    range_body_values = {
+        'value_input_option': 'USER_ENTERED',
+        'data': [
+            {
+                'majorDimension': 'ROWS',
+                'range': data_range,
+                'values': [data]
+            },
+        ]}
+    service.spreadsheets().values().batchUpdate(spreadsheetId=read_config("SAMPLE_SPREADSHEET_ID"),
+                                                body=range_body_values).execute()
 
 
 def available_tutor_times():
     df = get_spreadsheets_data().get('tutor_times')
-    mask = ((df['Student'] == '') | (df['Student'].isna())) & (df['Date and time'] != '') & (df['Date and time'].notna())
+    mask = ((df['Student'] == '') | (df['Student'].isna())) & (df['Date and time'] != '') & (
+        df['Date and time'].notna())
     return list(collections.OrderedDict.fromkeys(df.loc[mask, 'Date and time']))
 
 
@@ -144,7 +143,8 @@ def add_student_to_tutor_time(student: Student, tutor_time: str):
         service = build('sheets', 'v4', credentials=connect_to_spreadsheets())
         df = get_spreadsheets_data().get('tutor_times')
         mask = (df['Date and time'] == tutor_time) & (df['Student'].isna())
-        df.loc[mask.idxmax(), ['Student', "Student's phone number ", 'telegram']] = [student.name, student.phone, student.nickname]
+        df.loc[mask.idxmax(), ['Student', "Student's phone number ", 'telegram']] = [student.name, student.phone,
+                                                                                     student.nickname]
         range_body_values = {
             'value_input_option': 'USER_ENTERED',
             'data': [
@@ -175,7 +175,7 @@ def update_texts():
     file.close()
 
 
-def get_keyboard():
+def get_menu_markup():
     keyboard = [[KeyboardButton(get_text('REGISTRATION_BUTTON')), KeyboardButton(get_text('LOCATION_BUTTON'))],
                 [KeyboardButton(get_text('SCHEDULE_BUTTON')), KeyboardButton(get_text('INTERVIEW_BUTTON'))],
                 [KeyboardButton(get_text('TUTOR_TIME_BUTTON')), KeyboardButton(get_text('ABOUT_US_BUTTON'))],
@@ -192,6 +192,13 @@ def get_text(text: str):
     return ''
 
 
+def get_keyboard(button_names: []):
+    buttons = []
+    for name in button_names:
+        buttons.append([KeyboardButton(name)])
+    return buttons
+
+
 def get_chats():
     df = get_spreadsheets_data().get('registered_users')
     return df.loc[(df['id'] != '') & (df['id'].notna()), 'id'].values
@@ -206,7 +213,7 @@ def start_command(update, context):
 def ask_name(update, context):
     if get_chats().__contains__(str(update.message.chat_id)):
         context.bot.send_message(chat_id=update.message.chat_id, text=get_text('INVALID_REGISTRATION'),
-                                 reply_markup=get_keyboard())
+                                 reply_markup=get_menu_markup())
         update_texts()
         return ConversationHandler.END
     context.user_data.clear()
@@ -220,7 +227,7 @@ def ask_name(update, context):
 def ask_phone(update, context):
     if context.user_data.get('phone') is None:
         name = update.message.text.split()
-        if len(name) < 2:
+        if len(name) < 2 or re.search('\\w', name[1]) is None:
             return ask_name(update, context)
         context.user_data['name'] = update.message.text
     update.message.reply_text(get_text('ASK_PHONE'))
@@ -233,7 +240,7 @@ def ask_sex(update, context):
     if not (len(phone) == 12 and phone.isdigit()):
         return ask_phone(update, context)
     context.user_data['nickname'] = update.message.from_user.username
-    keyboard = [[KeyboardButton('Чол'), KeyboardButton('Жін')]]
+    keyboard = [[KeyboardButton(get_text('MALE')), KeyboardButton(get_text('FEMALE'))]]
     context.bot.send_message(chat_id=update.message.chat_id, text=get_text('ASK_SEX'),
                              reply_markup=ReplyKeyboardMarkup(keyboard, one_time_keyboard=True, resize_keyboard=True))
     return ENTER_UNI
@@ -241,16 +248,10 @@ def ask_sex(update, context):
 
 def ask_uni(update, context):
     context.user_data['sex'] = update.message.text
-    keyboard = [[KeyboardButton('Національний Університет "Львівська Політехніка"')],
-                [KeyboardButton('Львівський Національний Університет ім. І.Франка')],
-                [KeyboardButton('Національний Лісотехнічний Університет України')],
-                [KeyboardButton('Львівський державний університет внутрішніх справ МВС України')],
-                [KeyboardButton('Національний Університет Ветеринарної медицини та біотехнологій ім. С.Ґжицького')],
-                [KeyboardButton('Українська Академія Друкарства')],
-                ]
+    buttons = get_keyboard(get_text('UNIVERSITIES').split('; '))
     context.bot.send_message(chat_id=update.message.chat_id,
                              text=get_text('ASK_UNI'),
-                             reply_markup=ReplyKeyboardMarkup(keyboard, one_time_keyboard=True))
+                             reply_markup=ReplyKeyboardMarkup(buttons, one_time_keyboard=True))
     return ENTER_COURSE
 
 
@@ -274,18 +275,42 @@ def ask_visited(update, context):
 
 def specify_visited(update, context):
     context.user_data['visited'] = update.message.text
+    context.user_data['specified_visited'] = 'не відвідувала' if context.user_data['sex'] == 'Жін' else 'не відвідував'
     if not (context.user_data['visited'] == 'Так'):
         return ask_how_come(update, context)
-    context.bot.send_message(chat_id=update.message.chat_id, text=get_text('SPECIFY_VISITED'))
+    button_names = get_text('OUR_EVENTS').split("; ")
+    buttons = []
+    for i in range(len(button_names)):
+        buttons.append([InlineKeyboardButton(text=button_names[i], callback_data=str(i))])
+    buttons.append([InlineKeyboardButton(text=get_text('INPUT_EVENTS'), callback_data='next')])
+    keyboard = InlineKeyboardMarkup(buttons)
+    context.bot.send_message(chat_id=update.message.chat_id, text=get_text('SPECIFY_VISITED'),
+                             reply_markup=keyboard)
     return ENTER_HOW_COME
 
 
+def button_how_come(update, context):
+    query = update.callback_query
+    answer = query.data
+    if answer != 'next':
+        markup = query.message.reply_markup
+        result = ''
+        for row in markup.inline_keyboard:
+            if row[0].callback_data == answer:
+                words = row[0].text.split()
+                row[0].text = row[0].text[:-2] if words[-1] == '✅' else row[0].text + ' ✅'
+            if row[0].text.split()[-1] == '✅':
+                result = result + row[0].text[:-2] + '; '
+        context.user_data['specified_visited'] = result
+        query.edit_message_reply_markup(markup)
+    else:
+        query.edit_message_text(text=query.message.text +
+                                f'\n\nТвоя відповідь: {context.user_data["specified_visited"]}', reply_markup=None)
+        return ask_how_come(query, context)
+
+
 def ask_how_come(update, context):
-    context.user_data['specified_visited'] = '-'
-    if context.user_data['visited'] == 'Так':
-        context.user_data['specified_visited'] = update.message.text
-    keyboard = [[KeyboardButton('Флаєр')], [KeyboardButton('Постер')], [KeyboardButton('Друзі запросили')],
-                [KeyboardButton('Реклама Instagram')], [KeyboardButton('Реклама Telegram')]]
+    keyboard = get_keyboard(get_text('ADVERTISEMENTS').split('; '))
     context.bot.send_message(chat_id=update.message.chat_id, text=get_text('ASK_HOW_COME'),
                              reply_markup=ReplyKeyboardMarkup(keyboard, one_time_keyboard=True))
     return ENTER_ENGLISH_LEVEL
@@ -293,12 +318,7 @@ def ask_how_come(update, context):
 
 def ask_english_level(update, context):
     context.user_data['how_come'] = update.message.text
-    keyboard = [[KeyboardButton('повний нуль 🙂')],
-                [KeyboardButton('щось розумію, сказати нічого не зможу')],
-                [KeyboardButton('можу скласти кілька речень на загальні теми')],
-                [KeyboardButton('можу вести діалог, але слово consciousness буду гуглити')],
-                [KeyboardButton('дивлюсь серіали англійською без субтитрів')],
-                [KeyboardButton('англійська майже як рідна')]]
+    keyboard = get_keyboard(get_text('ENGLISH_LEVELS').split('; '))
     context.bot.send_message(chat_id=update.message.chat_id, text=get_text('ASK_ENGLISH_LEVEL'),
                              reply_markup=ReplyKeyboardMarkup(keyboard, one_time_keyboard=True))
     return ENTER_RELIGIOUS
@@ -306,9 +326,7 @@ def ask_english_level(update, context):
 
 def ask_religious(update, context):
     context.user_data['english_level'] = update.message.text
-    keyboard = [[KeyboardButton('Позитивно')],
-                [KeyboardButton('Негативно')],
-                [KeyboardButton('Нейтрально')], ]
+    keyboard = get_keyboard(get_text('ATTITUDES').split('; '))
     context.bot.send_message(chat_id=update.message.chat_id, text=get_text('ASK_RELIGIOUS'),
                              reply_markup=ReplyKeyboardMarkup(keyboard, one_time_keyboard=True))
     return EXIT_CONVERSATION
@@ -321,16 +339,17 @@ def exit_conversation(update, context):
         add_student(list(context.user_data.values()))
     except:
         context.bot.send_message(chat_id=int(read_config('ADMIN_ID')), text=traceback.format_exc())
-        context.bot.send_message(chat_id=int(read_config('ADMIN_ID')), text=f'failed to register. user is {context.user_data.get("name")}')
+        context.bot.send_message(chat_id=int(read_config('ADMIN_ID')),
+                                 text=f'failed to register. user is '
+                                      f'{context.user_data.get("name")}; {context.user_data.get("nickname")}')
     finally:
         show_menu(update, context)
         return ConversationHandler.END
 
 
 def finish_conversation(update: Update, context: ContextTypes.context):
-    print('hey')
     keyboard = [[KeyboardButton(get_text('REGISTRATION_BUTTON'))]]
-    context.bot.send_message(chat_id=update.effective_chat.id, text='Почнемо реєстрацію заново',
+    context.bot.send_message(chat_id=update.effective_chat.id, text=get_text('RESTART_REGISTRATION'),
                              reply_markup=ReplyKeyboardMarkup(keyboard, one_time_keyboard=True, resize_keyboard=True))
     return ConversationHandler.END
 
@@ -363,7 +382,7 @@ def ask_spam_message_text(update, context):
 
 
 def show_menu(update, context):
-    context.bot.send_message(chat_id=update.message.chat_id, text='Меню', reply_markup=get_keyboard())
+    context.bot.send_message(chat_id=update.message.chat_id, text=get_text('MENU'), reply_markup=get_menu_markup())
 
 
 def send_location(update, context):
@@ -411,7 +430,8 @@ def tutor_time_register(update, context):
     for element in button_names:
         buttons.append([InlineKeyboardButton(text=element, callback_data=element)])
     reply_markup = InlineKeyboardMarkup(buttons)
-    query.edit_message_text(query.message.text + '\n\n' + get_text('TUTOR_TIME_REGISTRATION'), reply_markup=reply_markup)
+    query.edit_message_text(query.message.text + '\n\n' + get_text('TUTOR_TIME_REGISTRATION'),
+                            reply_markup=reply_markup)
 
 
 def record_tutor_time(update, context):
@@ -430,12 +450,12 @@ def main():
     dispatcher = updater.dispatcher
     dispatcher.add_handler(CommandHandler('start', start_command))
     dispatcher.add_handler(CommandHandler('menu', show_menu))
-    dispatcher.add_handler(MessageHandler(Filters.text(get_text('LOCATION_BUTTON')), send_location))
-    dispatcher.add_handler(MessageHandler(Filters.text(get_text('SCHEDULE_BUTTON')), send_schedule))
-    dispatcher.add_handler(MessageHandler(Filters.text(get_text('INTERVIEW_BUTTON')), send_interview))
-    dispatcher.add_handler(MessageHandler(Filters.text(get_text('TUTOR_TIME_BUTTON')), send_tutor_time))
-    dispatcher.add_handler(MessageHandler(Filters.text(get_text('ABOUT_US_BUTTON')), send_about_us))
-    dispatcher.add_handler(MessageHandler(Filters.text(get_text('GOT_QUESTIONS_BUTTON')), send_connect))
+    dispatcher.add_handler(MessageHandler(Filters.regex(f"^{get_text('LOCATION_BUTTON')}$"), send_location))
+    dispatcher.add_handler(MessageHandler(Filters.regex(f"^{get_text('SCHEDULE_BUTTON')}$"), send_schedule))
+    dispatcher.add_handler(MessageHandler(Filters.regex(f"^{get_text('INTERVIEW_BUTTON')}$"), send_interview))
+    dispatcher.add_handler(MessageHandler(Filters.regex(f"^{get_text('TUTOR_TIME_BUTTON')}$"), send_tutor_time))
+    dispatcher.add_handler(MessageHandler(Filters.regex(f"^{get_text('ABOUT_US_BUTTON')}$"), send_about_us))
+    dispatcher.add_handler(MessageHandler(Filters.regex(f"^{get_text('GOT_QUESTIONS_BUTTON')}$"), send_connect))
     send_spam_conversation_handler = ConversationHandler(
         entry_points=[MessageHandler(Filters.text('spam_message'), spam_message)],
         states={
@@ -452,12 +472,12 @@ def main():
             ENTER_COURSE: [MessageHandler(Filters.text & (~ Filters.command), ask_course)],
             ENTER_VISITED: [MessageHandler(Filters.text & (~ Filters.command), ask_visited)],
             SPECIFY_VISITED: [MessageHandler(Filters.text & (~ Filters.command), specify_visited)],
-            ENTER_HOW_COME: [MessageHandler(Filters.text & (~ Filters.command), ask_how_come)],
+            ENTER_HOW_COME: [CallbackQueryHandler(button_how_come, pattern='next|\\d')],
             ENTER_ENGLISH_LEVEL: [MessageHandler(Filters.text & (~ Filters.command), ask_english_level)],
             ENTER_RELIGIOUS: [MessageHandler(Filters.text & (~ Filters.command), ask_religious)],
             EXIT_CONVERSATION: [MessageHandler(Filters.text & (~ Filters.command), exit_conversation)]
         },
-        fallbacks=[CommandHandler('restart_registration', finish_conversation)]
+        fallbacks=[CommandHandler('restart_registration', finish_conversation)],
     )
     dispatcher.add_handler(register_conversation_handler)
     dispatcher.add_handler(send_spam_conversation_handler)
