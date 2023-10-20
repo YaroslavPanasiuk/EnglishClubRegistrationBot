@@ -30,7 +30,7 @@
     "ABOUT_US_BUTTON": "Про нас 💁",
     "GOT_QUESTIONS_BUTTON": "Маю питання 📱",
     "TUTOR_TIME_REGISTRATION_BUTTON": "Зареєструватися на тютор тайм",
-    "OUR_EVENTS": "English club; Пікнік; Похід; Дискусійні групи; Нетворкінг; Інше",
+    "OUR_EVENTS": "English club; Пікнік; Похід; Дискусійні групи; Нетворкінг; Зустріч про світогляд; Yellow Fellow; Інше",
     "INPUT_EVENTS": "Далі ➔➔➔",
     "MENU": "Меню",
     "RESTART_REGISTRATION": "Почнемо реєстрацію заново",
@@ -39,5 +39,6 @@
     "MALE": "Чол",
     "FEMALE": "Жін",
     "ADVERTISEMENTS": "Флаєр; Постер; Друзі запросили; Реклама Instagram; Реклама Telegram",
-    "ATTITUDES": "Позитивно; Негативно; Нейтрально"
+    "ATTITUDES": "Позитивно; Негативно; Нейтрально",
+    "COURSES": "1; 2; 3; 4; 5; 6; Школяр; Закінчив"
 }

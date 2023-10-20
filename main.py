@@ -19,8 +19,8 @@ from google_auth_oauthlib.flow import InstalledAppFlow
 from googleapiclient.discovery import build
 from googleapiclient.errors import HttpError
 
-ENTER_NAME, ENTER_PHONE, ENTER_SEX, ENTER_UNI, ENTER_COURSE, ENTER_VISITED, SPECIFY_VISITED, ENTER_HOW_COME, ENTER_ENGLISH_LEVEL, ENTER_RELIGIOUS, EXIT_CONVERSATION = range(
-    11)
+(ENTER_NAME, ENTER_PHONE, ENTER_SEX, ENTER_UNI, ENTER_COURSE, ENTER_VISITED, SPECIFY_VISITED, ENTER_HOW_COME,
+ ENTER_ENGLISH_LEVEL, ENTER_RELIGIOUS, EXIT_CONVERSATION) = range(11)
 
 
 class Student:
@@ -192,10 +192,37 @@ def get_text(text: str):
     return ''
 
 
-def get_keyboard(button_names: []):
+def get_keyboard(button_names: [], columns=1):
     buttons = []
-    for name in button_names:
-        buttons.append([KeyboardButton(name)])
+    full_rows_count = len(button_names) // columns
+    last_row_size = len(button_names) % columns
+    for i in range(full_rows_count):
+        row = []
+        for j in range(columns):
+            row.append(KeyboardButton(button_names[i * columns + j]))
+        buttons.append(row)
+    row = []
+    for i in range(last_row_size):
+        row.append(KeyboardButton(button_names[i + columns * full_rows_count]))
+    buttons.append(row)
+    return buttons
+
+
+def get_inline_keyboard(button_names: [], callbacks: [], columns=1):
+    buttons = []
+    full_rows_count = len(button_names) // columns
+    last_row_size = len(button_names) % columns
+    for i in range(full_rows_count):
+        row = []
+        for j in range(columns):
+            index = i * columns + j
+            row.append(InlineKeyboardButton(button_names[index], callback_data=callbacks[index]))
+        buttons.append(row)
+    row = []
+    for i in range(last_row_size):
+        index = i + columns * full_rows_count
+        row.append(InlineKeyboardButton(button_names[index], callback_data=callbacks[index]))
+    buttons.append(row)
     return buttons
 
 
@@ -240,7 +267,7 @@ def ask_sex(update, context):
     if not (len(phone) == 12 and phone.isdigit()):
         return ask_phone(update, context)
     context.user_data['nickname'] = update.message.from_user.username
-    keyboard = [[KeyboardButton(get_text('MALE')), KeyboardButton(get_text('FEMALE'))]]
+    keyboard = get_keyboard([get_text('MALE'), get_text('FEMALE')], 2)
     context.bot.send_message(chat_id=update.message.chat_id, text=get_text('ASK_SEX'),
                              reply_markup=ReplyKeyboardMarkup(keyboard, one_time_keyboard=True, resize_keyboard=True))
     return ENTER_UNI
@@ -257,9 +284,7 @@ def ask_uni(update, context):
 
 def ask_course(update, context):
     context.user_data['uni'] = update.message.text
-    keyboard = [[KeyboardButton('1'), KeyboardButton('2'), KeyboardButton('3')],
-                [KeyboardButton('4'), KeyboardButton('5'), KeyboardButton('6')],
-                [KeyboardButton('Закінчив'), KeyboardButton('Школяр')]]
+    keyboard = get_keyboard(get_text('COURSES').split('; '), 3)
     context.bot.send_message(chat_id=update.message.chat_id, text=get_text('ASK_COURSE'),
                              reply_markup=ReplyKeyboardMarkup(keyboard, one_time_keyboard=True))
     return ENTER_VISITED
@@ -267,7 +292,7 @@ def ask_course(update, context):
 
 def ask_visited(update, context):
     context.user_data['course'] = update.message.text
-    keyboard = [[KeyboardButton('Так'), KeyboardButton('Ні')]]
+    keyboard = get_keyboard(['Так', 'Ні'], 2)
     context.bot.send_message(chat_id=update.message.chat_id, text=get_text('ASK_VISITED'),
                              reply_markup=ReplyKeyboardMarkup(keyboard, one_time_keyboard=True, resize_keyboard=True))
     return SPECIFY_VISITED
@@ -275,13 +300,14 @@ def ask_visited(update, context):
 
 def specify_visited(update, context):
     context.user_data['visited'] = update.message.text
-    context.user_data['specified_visited'] = 'не відвідувала' if context.user_data['sex'] == 'Жін' else 'не відвідував'
+    if context.user_data['sex'] == get_text('FEMALE'):
+        context.user_data['specified_visited'] = 'не відвідувала'
+    else:
+        context.user_data['specified_visited'] = 'не відвідував'
     if not (context.user_data['visited'] == 'Так'):
         return ask_how_come(update, context)
     button_names = get_text('OUR_EVENTS').split("; ")
-    buttons = []
-    for i in range(len(button_names)):
-        buttons.append([InlineKeyboardButton(text=button_names[i], callback_data=str(i))])
+    buttons = get_inline_keyboard(button_names, range(len(button_names)), 2)
     buttons.append([InlineKeyboardButton(text=get_text('INPUT_EVENTS'), callback_data='next')])
     keyboard = InlineKeyboardMarkup(buttons)
     context.bot.send_message(chat_id=update.message.chat_id, text=get_text('SPECIFY_VISITED'),
@@ -296,11 +322,12 @@ def button_how_come(update, context):
         markup = query.message.reply_markup
         result = ''
         for row in markup.inline_keyboard:
-            if row[0].callback_data == answer:
-                words = row[0].text.split()
-                row[0].text = row[0].text[:-2] if words[-1] == '✅' else row[0].text + ' ✅'
-            if row[0].text.split()[-1] == '✅':
-                result = result + row[0].text[:-2] + '; '
+            for button in row:
+                if button.callback_data == answer:
+                    words = button.text.split()
+                    button.text = button.text[:-2] if words[-1] == '✅' else button.text + ' ✅'
+                if button.text.split()[-1] == '✅':
+                    result = result + button.text[:-2] + '; '
         context.user_data['specified_visited'] = result
         query.edit_message_reply_markup(markup)
     else:
@@ -310,7 +337,7 @@ def button_how_come(update, context):
 
 
 def ask_how_come(update, context):
-    keyboard = get_keyboard(get_text('ADVERTISEMENTS').split('; '))
+    keyboard = get_keyboard(get_text('ADVERTISEMENTS').split('; '), 2)
     context.bot.send_message(chat_id=update.message.chat_id, text=get_text('ASK_HOW_COME'),
                              reply_markup=ReplyKeyboardMarkup(keyboard, one_time_keyboard=True))
     return ENTER_ENGLISH_LEVEL
@@ -328,7 +355,7 @@ def ask_religious(update, context):
     context.user_data['english_level'] = update.message.text
     keyboard = get_keyboard(get_text('ATTITUDES').split('; '))
     context.bot.send_message(chat_id=update.message.chat_id, text=get_text('ASK_RELIGIOUS'),
-                             reply_markup=ReplyKeyboardMarkup(keyboard, one_time_keyboard=True))
+                             reply_markup=ReplyKeyboardMarkup(keyboard, one_time_keyboard=True, resize_keyboard=True))
     return EXIT_CONVERSATION
 
 
@@ -356,7 +383,7 @@ def finish_conversation(update: Update, context: ContextTypes.context):
 
 def spam_message(update, context):
     if update.message.chat_id != int(read_config('ADMIN_ID')) and update.message.chat_id != int(
-            read_config('COADMIN_ID')) and update.message.chat_id != int(read_config('COADMIN_ID_2')):
+            read_config('ADMIN_ID_3')) and update.message.chat_id != int(read_config('ADMIN_ID_2')):
         return ConversationHandler.END
     chats = get_chats()
     context.bot.send_message(chat_id=update.message.chat_id,
@@ -398,8 +425,8 @@ def send_interview(update, context):
 
 
 def send_tutor_time(update, context):
-    reply_markup = InlineKeyboardMarkup(
-        [[InlineKeyboardButton(get_text('TUTOR_TIME_REGISTRATION_BUTTON'), callback_data='tutor_time_register')]])
+    # reply_markup = InlineKeyboardMarkup(
+    #    [[InlineKeyboardButton(get_text('TUTOR_TIME_REGISTRATION_BUTTON'), callback_data='tutor_time_register')]])
     context.bot.send_message(chat_id=update.message.chat_id, text=get_text('TUTOR_TIME'), reply_markup=None)
 
 
