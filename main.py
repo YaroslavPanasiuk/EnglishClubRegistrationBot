@@ -75,9 +75,9 @@ def get_spreadsheets_data():
         service = build('sheets', 'v4', credentials=connect_to_spreadsheets())
         sheet = service.spreadsheets()
         registered_users = sheet.values().get(spreadsheetId=read_config("SAMPLE_SPREADSHEET_ID"),
-                                              range='Реєстрація!A1:R500').execute().get('values', [])
+                                              range=read_config('REGISTRATION_RANGE_NAME')).execute().get('values', [])
         tutor_times = sheet.values().get(spreadsheetId=read_config("SAMPLE_SPREADSHEET_ID"),
-                                         range='Tutor time!A1:H60').execute().get('values', [])
+                                         range=read_config('TUTOR_TIME_RANGE_NAME')).execute().get('values', [])
         if not registered_users:
             print('No users found.')
             return
@@ -98,9 +98,8 @@ def get_spreadsheets_data():
 
 def add_student(data: []):
     service = build('sheets', 'v4', credentials=connect_to_spreadsheets())
-    sheet = service.spreadsheets()
-    students = sheet.values().get(spreadsheetId=read_config("SAMPLE_SPREADSHEET_ID"),
-                                  range=read_config("SAMPLE_RANGE_NAME")).execute()
+    students = service.spreadsheets().values().get(spreadsheetId=read_config("SAMPLE_SPREADSHEET_ID"),
+                                                   range=read_config("REGISTRATION_RANGE_NAME")).execute()
     data_range = 'A{0}:L{0}'.format(str(len(students.get('values', [])) + 1))
     range_body_values = {
         'value_input_option': 'USER_ENTERED',
@@ -127,6 +126,40 @@ def find_student(telegram_id):
     if not df.loc[df['id'] == str(telegram_id)].values.flatten().tolist():
         return None
     return Student(df.loc[df['id'] == str(telegram_id)].values.flatten().tolist())
+
+
+def backup_table():
+    data = get_spreadsheets_data().get('registered_users').values.tolist()
+    range_body_values = {
+        'value_input_option': 'USER_ENTERED',
+        'data': [
+            {
+                'majorDimension': 'ROWS',
+                'range': 'Reserve!A1:L1000',
+                'values': data
+            },
+        ]}
+    service = build('sheets', 'v4', credentials=connect_to_spreadsheets())
+    service.spreadsheets().values().batchUpdate(spreadsheetId=read_config("SAMPLE_SPREADSHEET_ID"),
+                                                body=range_body_values).execute()
+
+
+def remove_student(telegram_id):
+    df = get_spreadsheets_data().get('registered_users')
+    data = df.loc[df['id'] != str(telegram_id)].values.tolist()
+    data.append(['']*12)
+    range_body_values = {
+        'value_input_option': 'USER_ENTERED',
+        'data': [
+            {
+                'majorDimension': 'ROWS',
+                'range': 'A2:L1000',
+                'values': data
+            },
+        ]}
+    service = build('sheets', 'v4', credentials=connect_to_spreadsheets())
+    service.spreadsheets().values().batchUpdate(spreadsheetId=read_config("SAMPLE_SPREADSHEET_ID"),
+                                                body=range_body_values).execute()
 
 
 def when_student_has_tutor_time(student: Student):
@@ -165,7 +198,7 @@ def update_texts():
     service = build('sheets', 'v4', credentials=connect_to_spreadsheets())
     sheet = service.spreadsheets()
     questions = (sheet.values().get(spreadsheetId=read_config("SAMPLE_SPREADSHEET_ID"),
-                                    range='Питання!A1:B50').execute()).get('values', [])
+                                    range=read_config('TEXTS_RANGE_NAME')).execute()).get('values', [])
     file = open("texts.json", "w", encoding='UTF-8')
     data = pd.DataFrame(questions).values
     dictionary = {}
@@ -238,7 +271,7 @@ def start_command(update, context):
 
 
 def ask_name(update, context):
-    if get_chats().__contains__(str(update.message.chat_id)):
+    if find_student(update.message.chat_id) is not None:
         context.bot.send_message(chat_id=update.message.chat_id, text=get_text('INVALID_REGISTRATION'),
                                  reply_markup=get_menu_markup())
         update_texts()
@@ -256,7 +289,10 @@ def ask_phone(update, context):
         name = update.message.text.split()
         if len(name) < 2 or re.search('\\w', name[1]) is None:
             return ask_name(update, context)
-        context.user_data['name'] = update.message.text
+        name = update.message.text
+        context.user_data['name'] = name
+        context.bot.send_message(chat_id=update.message.chat_id,
+                                 text=get_text('RESTART_REGISTRATION_INFO').format(name.split()[0]))
     update.message.reply_text(get_text('ASK_PHONE'))
     return ENTER_SEX
 
@@ -301,9 +337,9 @@ def ask_visited(update, context):
 def specify_visited(update, context):
     context.user_data['visited'] = update.message.text
     if context.user_data['sex'] == get_text('FEMALE'):
-        context.user_data['specified_visited'] = 'не відвідувала'
+        context.user_data['specified_visited'] = get_text('DEFAULT_MALE_VISITED')
     else:
-        context.user_data['specified_visited'] = 'не відвідував'
+        context.user_data['specified_visited'] = get_text('DEFAULT_FEMALE_VISITED')
     if not (context.user_data['visited'] == 'Так'):
         return ask_how_come(update, context)
     button_names = get_text('OUR_EVENTS').split("; ")
@@ -332,14 +368,15 @@ def button_how_come(update, context):
         query.edit_message_reply_markup(markup)
     else:
         query.edit_message_text(text=query.message.text +
-                                f'\n\nТвоя відповідь: {context.user_data["specified_visited"]}', reply_markup=None)
+                                get_text('SPECIFY_VISITED_ANSWER').format(context.user_data["specified_visited"]),
+                                reply_markup=None)
         return ask_how_come(query, context)
 
 
 def ask_how_come(update, context):
     keyboard = get_keyboard(get_text('ADVERTISEMENTS').split('; '), 2)
     context.bot.send_message(chat_id=update.message.chat_id, text=get_text('ASK_HOW_COME'),
-                             reply_markup=ReplyKeyboardMarkup(keyboard, one_time_keyboard=True))
+                             reply_markup=ReplyKeyboardMarkup(keyboard, one_time_keyboard=True, resize_keyboard=True))
     return ENTER_ENGLISH_LEVEL
 
 
@@ -378,6 +415,7 @@ def finish_conversation(update: Update, context: ContextTypes.context):
     keyboard = [[KeyboardButton(get_text('REGISTRATION_BUTTON'))]]
     context.bot.send_message(chat_id=update.effective_chat.id, text=get_text('RESTART_REGISTRATION'),
                              reply_markup=ReplyKeyboardMarkup(keyboard, one_time_keyboard=True, resize_keyboard=True))
+    remove_student(update.effective_chat.id)
     return ConversationHandler.END
 
 
@@ -385,10 +423,12 @@ def spam_message(update, context):
     if update.message.chat_id != int(read_config('ADMIN_ID')) and update.message.chat_id != int(
             read_config('ADMIN_ID_3')) and update.message.chat_id != int(read_config('ADMIN_ID_2')):
         return ConversationHandler.END
-    chats = get_chats()
+    students = get_spreadsheets_data().get('registered_users').values.tolist()
+    receivers = ''
+    for student in students:
+        receivers = receivers + f"{student[0]} - {student[1]}\n"
     context.bot.send_message(chat_id=update.message.chat_id,
-                             text='Введіть повідомлення для розсилки {n} людям {chats}'.format(n=len(chats),
-                                                                                               chats=chats))
+                             text=get_text('MESSAGE_TO_SPAM').format(len(students), receivers))
     return 0
 
 
@@ -473,6 +513,7 @@ def record_tutor_time(update, context):
 def main():
     print("start")
     update_texts()
+    backup_table()
     updater = Updater(read_config("BOT_TOKEN"), use_context=True)
     dispatcher = updater.dispatcher
     dispatcher.add_handler(CommandHandler('start', start_command))
@@ -504,9 +545,10 @@ def main():
             ENTER_RELIGIOUS: [MessageHandler(Filters.text & (~ Filters.command), ask_religious)],
             EXIT_CONVERSATION: [MessageHandler(Filters.text & (~ Filters.command), exit_conversation)]
         },
-        fallbacks=[CommandHandler('restart_registration', finish_conversation)],
+        fallbacks=[CommandHandler('restart_registration', finish_conversation)]
     )
     dispatcher.add_handler(register_conversation_handler)
+    dispatcher.add_handler(CommandHandler('restart_registration', finish_conversation))
     dispatcher.add_handler(send_spam_conversation_handler)
     dispatcher.add_handler(CallbackQueryHandler(tutor_time_register, pattern='tutor_time_register'))
     dispatcher.add_handler(CallbackQueryHandler(record_tutor_time))
