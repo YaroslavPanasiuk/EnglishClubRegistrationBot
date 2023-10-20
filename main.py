@@ -328,7 +328,7 @@ def ask_course(update, context):
 
 def ask_visited(update, context):
     context.user_data['course'] = update.message.text
-    keyboard = get_keyboard(['Так', 'Ні'], 2)
+    keyboard = get_keyboard([get_text('YES'), get_text('NO')], 2)
     context.bot.send_message(chat_id=update.message.chat_id, text=get_text('ASK_VISITED'),
                              reply_markup=ReplyKeyboardMarkup(keyboard, one_time_keyboard=True, resize_keyboard=True))
     return SPECIFY_VISITED
@@ -340,7 +340,7 @@ def specify_visited(update, context):
         context.user_data['specified_visited'] = get_text('DEFAULT_MALE_VISITED')
     else:
         context.user_data['specified_visited'] = get_text('DEFAULT_FEMALE_VISITED')
-    if not (context.user_data['visited'] == 'Так'):
+    if not (context.user_data['visited'] == get_text('YES')):
         return ask_how_come(update, context)
     button_names = get_text('OUR_EVENTS').split("; ")
     buttons = get_inline_keyboard(button_names, range(len(button_names)), 2)
