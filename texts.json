@@ -45,5 +45,7 @@
     "DEFAULT_MALE_VISITED": "не відвідував",
     "DEFAULT_FEMALE_VISITED": "не відвідувала",
     "SPECIFY_VISITED_ANSWER": "\n\nТвоя відповідь: {0}",
-    "MESSAGE_TO_SPAM": "Введіть повідомлення для розсилки {0} людям:\n{1}"
+    "MESSAGE_TO_SPAM": "Введіть повідомлення для розсилки {0} людям:\n{1}",
+    "YES": "Так",
+    "NO": "Ні"
 }

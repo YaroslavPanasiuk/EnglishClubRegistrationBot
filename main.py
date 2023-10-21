@@ -209,10 +209,10 @@ def update_texts():
 
 
 def get_menu_markup():
-    keyboard = [[KeyboardButton(get_text('REGISTRATION_BUTTON')), KeyboardButton(get_text('LOCATION_BUTTON'))],
-                [KeyboardButton(get_text('SCHEDULE_BUTTON')), KeyboardButton(get_text('INTERVIEW_BUTTON'))],
-                [KeyboardButton(get_text('TUTOR_TIME_BUTTON')), KeyboardButton(get_text('ABOUT_US_BUTTON'))],
-                [KeyboardButton(get_text('GOT_QUESTIONS_BUTTON'))]]
+    keyboard = get_keyboard([
+        get_text('REGISTRATION_BUTTON'), get_text('LOCATION_BUTTON'), get_text('SCHEDULE_BUTTON'),
+        get_text('INTERVIEW_BUTTON'), get_text('TUTOR_TIME_BUTTON'), get_text('ABOUT_US_BUTTON')
+    ], 2)
     return ReplyKeyboardMarkup(keyboard)
 
 
@@ -364,7 +364,8 @@ def button_how_come(update, context):
                     button.text = button.text[:-2] if words[-1] == '✅' else button.text + ' ✅'
                 if button.text.split()[-1] == '✅':
                     result = result + button.text[:-2] + '; '
-        context.user_data['specified_visited'] = result
+        if result != '':
+            context.user_data['specified_visited'] = result
         query.edit_message_reply_markup(markup)
     else:
         query.edit_message_text(text=query.message.text +
