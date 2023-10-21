@@ -213,7 +213,7 @@ def get_menu_markup():
         get_text('REGISTRATION_BUTTON'), get_text('LOCATION_BUTTON'), get_text('SCHEDULE_BUTTON'),
         get_text('INTERVIEW_BUTTON'), get_text('TUTOR_TIME_BUTTON'), get_text('ABOUT_US_BUTTON')
     ], 2)
-    return ReplyKeyboardMarkup(keyboard)
+    return ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
 
 
 def get_text(text: str):
