@@ -337,9 +337,9 @@ def ask_visited(update, context):
 def specify_visited(update, context):
     context.user_data['visited'] = update.message.text
     if context.user_data['sex'] == get_text('FEMALE'):
-        context.user_data['specified_visited'] = get_text('DEFAULT_MALE_VISITED')
-    else:
         context.user_data['specified_visited'] = get_text('DEFAULT_FEMALE_VISITED')
+    else:
+        context.user_data['specified_visited'] = get_text('DEFAULT_MALE_VISITED')
     if not (context.user_data['visited'] == get_text('YES')):
         return ask_how_come(update, context)
     button_names = get_text('OUR_EVENTS').split("; ")
