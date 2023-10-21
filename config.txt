@@ -1,0 +1,15 @@
+SCOPES = https://www.googleapis.com/auth/spreadsheets
+SAMPLE_SPREADSHEET_ID = 1PgGrNWxmt1BDjv0Z7CW9p2xFhieMnCZHhUKmTlXrZfY
+REGISTRATION_RANGE_NAME = Реєстрація!A1:L1000
+TEXTS_RANGE_NAME = Питання!A1:B100
+TUTOR_TIME_RANGE_NAME = Tutor time!A1:H100
+TEST_BOT_TOKEN = 6330703401:AAGQtxUG4BsfxsRrt-a73cZuE8QPmPoMmGw
+BOT_TOKEN = 6504445337:AAFgyBaHbNziDQkxGLBQl_9VbP-HWOKDlSU
+ADMIN_ID = 388098248
+ADMIN_ID_2 = 529984803
+ADMIN_ID_3 = 677957422
+
+
+Commands:
+menu - викликати меню з командами бота
+restart_registration - перезапустити реєстрацію (використовуйте, якщо вказали невірні дані або виникають проблеми з реєстрацією)
