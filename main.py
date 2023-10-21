@@ -334,12 +334,15 @@ def ask_visited(update, context):
     return SPECIFY_VISITED
 
 
+def get_default_visited_text(sex):
+    if sex == get_text('FEMALE'):
+        return get_text('DEFAULT_FEMALE_VISITED')
+    return get_text('DEFAULT_MALE_VISITED')
+
+
 def specify_visited(update, context):
     context.user_data['visited'] = update.message.text
-    if context.user_data['sex'] == get_text('FEMALE'):
-        context.user_data['specified_visited'] = get_text('DEFAULT_FEMALE_VISITED')
-    else:
-        context.user_data['specified_visited'] = get_text('DEFAULT_MALE_VISITED')
+    context.user_data['specified_visited'] = get_default_visited_text(context.user_data['sex'])
     if not (context.user_data['visited'] == get_text('YES')):
         return ask_how_come(update, context)
     button_names = get_text('OUR_EVENTS').split("; ")
@@ -364,8 +367,8 @@ def button_how_come(update, context):
                     button.text = button.text[:-2] if words[-1] == '✅' else button.text + ' ✅'
                 if button.text.split()[-1] == '✅':
                     result = result + button.text[:-2] + '; '
-        if result != '':
-            context.user_data['specified_visited'] = result
+        sex = context.user_data['sex']
+        context.user_data['specified_visited'] = get_default_visited_text(sex) if result == '' else result
         query.edit_message_reply_markup(markup)
     else:
         query.edit_message_text(text=query.message.text +
