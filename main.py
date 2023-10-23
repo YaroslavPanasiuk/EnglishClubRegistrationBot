@@ -264,6 +264,24 @@ def get_chats():
     return df.loc[(df['id'] != '') & (df['id'].notna()), 'id'].values
 
 
+def get_default_visited_text(sex):
+    if sex == get_text('FEMALE'):
+        return get_text('DEFAULT_FEMALE_VISITED')
+    return get_text('DEFAULT_MALE_VISITED')
+
+
+def get_ask_how_come_text(sex):
+    if sex == get_text('FEMALE'):
+        return get_text('ASK_HOW_COME_FEMALE')
+    return get_text('ASK_HOW_COME_MALE')
+
+
+def get_visited_text(sex):
+    if sex == get_text('FEMALE'):
+        return get_text('ASK_VISITED_FEMALE')
+    return get_text('ASK_VISITED_MALE')
+
+
 def start_command(update, context):
     keyboard = [[KeyboardButton(get_text('REGISTRATION_BUTTON'))]]
     context.bot.send_message(chat_id=update.message.chat_id, text=get_text('INTRODUCTION'), parse_mode=ParseMode.HTML,
@@ -329,15 +347,9 @@ def ask_course(update, context):
 def ask_visited(update, context):
     context.user_data['course'] = update.message.text
     keyboard = get_keyboard([get_text('YES'), get_text('NO')], 2)
-    context.bot.send_message(chat_id=update.message.chat_id, text=get_text('ASK_VISITED'),
+    context.bot.send_message(chat_id=update.message.chat_id, text=get_visited_text(context.user_data['sex']),
                              reply_markup=ReplyKeyboardMarkup(keyboard, one_time_keyboard=True, resize_keyboard=True))
     return SPECIFY_VISITED
-
-
-def get_default_visited_text(sex):
-    if sex == get_text('FEMALE'):
-        return get_text('DEFAULT_FEMALE_VISITED')
-    return get_text('DEFAULT_MALE_VISITED')
 
 
 def specify_visited(update, context):
@@ -379,7 +391,7 @@ def button_how_come(update, context):
 
 def ask_how_come(update, context):
     keyboard = get_keyboard(get_text('ADVERTISEMENTS').split('; '), 2)
-    context.bot.send_message(chat_id=update.message.chat_id, text=get_text('ASK_HOW_COME'),
+    context.bot.send_message(chat_id=update.message.chat_id, text=get_ask_how_come_text(context.user_data['sex']),
                              reply_markup=ReplyKeyboardMarkup(keyboard, one_time_keyboard=True, resize_keyboard=True))
     return ENTER_ENGLISH_LEVEL
 
