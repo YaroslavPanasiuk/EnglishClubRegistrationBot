@@ -1,0 +1,4 @@
+name: Qodana Scan
+version: 1.0
+uses: JetBrains/qodana-action@v2023.2.8
+            
