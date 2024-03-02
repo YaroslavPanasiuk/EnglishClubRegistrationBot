@@ -27,6 +27,8 @@ class Student:
     def __init__(self, values: []):
         self.id = values[0]
         self.name = values[1]
+        if len(values) < 3:
+            return
         self.phone = values[2]
         self.nickname = values[3]
         self.sex = values[4]
