@@ -78,6 +78,8 @@ def get_spreadsheets_data():
                                               range=read_config('REGISTRATION_RANGE_NAME')).execute().get('values', [])
         tutor_times = sheet.values().get(spreadsheetId=read_config("SAMPLE_SPREADSHEET_ID"),
                                          range=read_config('TUTOR_TIME_RANGE_NAME')).execute().get('values', [])
+        users_to_spam = sheet.values().get(spreadsheetId=read_config("SAMPLE_SPREADSHEET_ID"),
+                                           range=read_config('SPAM_RANGE_NAME')).execute().get('values', [])
         if not registered_users:
             print('No users found.')
             return
@@ -90,7 +92,10 @@ def get_spreadsheets_data():
         tutor_times_df = pd.DataFrame(tutor_times)
         tutor_times_df.columns = tutor_times_df.iloc[0]
         tutor_times_df = tutor_times_df[1:]
-        return {'registered_users': users_df, 'tutor_times': tutor_times_df}
+        users_to_spam_df = pd.DataFrame(users_to_spam)
+        users_to_spam_df.columns = users_to_spam_df.iloc[0]
+        users_to_spam_df = users_to_spam_df[1:]
+        return {'registered_users': users_df, 'tutor_times': tutor_times_df, 'users_to_spam': users_to_spam_df}
 
     except HttpError as err:
         print(err)
@@ -260,7 +265,7 @@ def get_inline_keyboard(button_names: [], callbacks: [], columns=1):
 
 
 def get_chats():
-    df = get_spreadsheets_data().get('registered_users')
+    df = get_spreadsheets_data().get('users_to_spam')
     return df.loc[(df['id'] != '') & (df['id'].notna()), 'id'].values
 
 
@@ -427,6 +432,11 @@ def exit_conversation(update, context):
         return ConversationHandler.END
 
 
+def cancel_conversation(update: Update, context: ContextTypes.context):
+    context.bot.send_message(chat_id=update.message.chat_id, text='successfully canceled')
+    return ConversationHandler.END
+
+
 def finish_conversation(update: Update, context: ContextTypes.context):
     keyboard = [[KeyboardButton(get_text('REGISTRATION_BUTTON'))]]
     context.bot.send_message(chat_id=update.effective_chat.id, text=get_text('RESTART_REGISTRATION'),
@@ -439,10 +449,14 @@ def spam_message(update, context):
     if update.message.chat_id != int(read_config('ADMIN_ID')) and update.message.chat_id != int(
             read_config('ADMIN_ID_3')) and update.message.chat_id != int(read_config('ADMIN_ID_2')):
         return ConversationHandler.END
-    students = get_spreadsheets_data().get('registered_users').values.tolist()
+    students = get_spreadsheets_data().get('users_to_spam').values.tolist()
     receivers = ''
     for student in students:
         receivers = receivers + f"{student[0]} - {student[1]}\n"
+        if len(receivers) > 3500:
+            context.bot.send_message(chat_id=update.message.chat_id,
+                                     text=get_text('MESSAGE_TO_SPAM').format(len(students), receivers))
+            receivers = ''
     context.bot.send_message(chat_id=update.message.chat_id,
                              text=get_text('MESSAGE_TO_SPAM').format(len(students), receivers))
     return 0
@@ -450,16 +464,21 @@ def spam_message(update, context):
 
 def ask_spam_message_text(update, context):
     chats = get_chats()
+    current_chad_id = update.message.chat_id
     try:
+        print(chats)
         for chat in chats:
             context.bot.send_message(chat_id=int(chat), text=update.message.text)
             time.sleep(1)
             student = find_student(chat)
-            context.bot.send_message(chat_id=update.message.chat_id, text=f'sent to {student.name}, id = {student.id}')
+            context.bot.send_message(chat_id=current_chad_id, text=f'sent to {student.name}, id = {student.id}')
             time.sleep(1)
-        context.bot.send_message(chat_id=update.message.chat_id, text='sentAll')
+        context.bot.send_message(chat_id=current_chad_id, text='sentAll')
     except:
         context.bot.send_message(chat_id=int(read_config('ADMIN_ID')), text=traceback.format_exc())
+        if current_chad_id != int(read_config('ADMIN_ID')):
+            time.sleep(1)
+            context.bot.send_message(chat_id=update.message.chat_id, text=traceback.format_exc())
     finally:
         return ConversationHandler.END
 
@@ -545,7 +564,7 @@ def main():
         states={
             0: [MessageHandler(Filters.text & (~ Filters.command), ask_spam_message_text)],
         },
-        fallbacks=[]
+        fallbacks=[CommandHandler('cancel', cancel_conversation)]
     )
     register_conversation_handler = ConversationHandler(
         entry_points=[MessageHandler(Filters.text(get_text('REGISTRATION_BUTTON')), ask_name)],
