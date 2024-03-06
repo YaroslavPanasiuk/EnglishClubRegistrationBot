@@ -8,6 +8,7 @@ import re
 import time
 import traceback
 import pandas as pd
+import telegram.error
 
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup, KeyboardButton, ReplyKeyboardMarkup, ParseMode, \
     ReplyKeyboardRemove, Update
@@ -128,8 +129,9 @@ def available_tutor_times():
     return list(collections.OrderedDict.fromkeys(df.loc[mask, 'Date and time']))
 
 
-def find_student(telegram_id):
-    df = get_spreadsheets_data().get('registered_users')
+def find_student(telegram_id: int):
+    data = get_spreadsheets_data()
+    df = pd.concat([data.get('registered_users'), data.get('users_to_spam')], ignore_index=True)
     if not df.loc[df['id'] == str(telegram_id)].values.flatten().tolist():
         return None
     return Student(df.loc[df['id'] == str(telegram_id)].values.flatten().tolist())
@@ -218,7 +220,8 @@ def update_texts():
 def get_menu_markup():
     keyboard = get_keyboard([
         get_text('REGISTRATION_BUTTON'), get_text('LOCATION_BUTTON'), get_text('SCHEDULE_BUTTON'),
-        get_text('INTERVIEW_BUTTON'), get_text('TUTOR_TIME_BUTTON'), get_text('ABOUT_US_BUTTON'), get_text('GOT_QUESTIONS_BUTTON')
+        get_text('INTERVIEW_BUTTON'), get_text('TUTOR_TIME_BUTTON'), get_text('ABOUT_US_BUTTON'),
+        get_text('GOT_QUESTIONS_BUTTON')
     ], 2)
     return ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
 
@@ -466,23 +469,34 @@ def spam_message(update, context):
 
 def ask_spam_message_text(update, context):
     chats = get_chats()
-    current_chad_id = update.message.chat_id
+    current_chat_id = update.message.chat_id
     try:
-        print(chats)
         for chat in chats:
-            context.bot.send_message(chat_id=int(chat), text=update.message.text)
-            time.sleep(1)
             student = find_student(chat)
-            context.bot.send_message(chat_id=current_chad_id, text=f'sent to {student.name}, id = {student.id}')
-            time.sleep(1)
-        context.bot.send_message(chat_id=current_chad_id, text='sentAll')
+            try:
+                context.bot.send_message(chat_id=int(chat), text=update.message.text)
+                time.sleep(1)
+                context.bot.send_message(chat_id=current_chat_id, text=f'sent to {student.name}, id = {student.id}')
+                time.sleep(1)
+            except telegram.error.Unauthorized:
+                report_error(context.bot, current_chat_id, f'{student.name} has blocked me((')
+            except telegram.error.BadRequest:
+                report_error(context.bot, current_chat_id, f'{student.name} has not yet contacted me')
+        context.bot.send_message(chat_id=current_chat_id, text='sentAll')
     except:
         context.bot.send_message(chat_id=int(read_config('ADMIN_ID')), text=traceback.format_exc())
-        if current_chad_id != int(read_config('ADMIN_ID')):
+        if current_chat_id != int(read_config('ADMIN_ID')):
             time.sleep(1)
             context.bot.send_message(chat_id=update.message.chat_id, text=traceback.format_exc())
     finally:
         return ConversationHandler.END
+
+
+def report_error(bot, chat_id, msg):
+    bot.send_message(chat_id=int(read_config('ADMIN_ID')), text=msg)
+    if chat_id != int(read_config('ADMIN_ID')):
+        time.sleep(1)
+        bot.send_message(chat_id=chat_id, text=msg)
 
 
 def show_menu(update, context):
