@@ -218,7 +218,7 @@ def update_texts():
 def get_menu_markup():
     keyboard = get_keyboard([
         get_text('REGISTRATION_BUTTON'), get_text('LOCATION_BUTTON'), get_text('SCHEDULE_BUTTON'),
-        get_text('INTERVIEW_BUTTON'), get_text('TUTOR_TIME_BUTTON'), get_text('ABOUT_US_BUTTON')
+        get_text('INTERVIEW_BUTTON'), get_text('TUTOR_TIME_BUTTON'), get_text('ABOUT_US_BUTTON'), get_text('GOT_QUESTIONS_BUTTON')
     ], 2)
     return ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
 
