@@ -21,7 +21,7 @@ from googleapiclient.discovery import build
 from googleapiclient.errors import HttpError
 
 (ENTER_NAME, ENTER_PHONE, ENTER_SEX, ENTER_UNI, ENTER_COURSE, ENTER_VISITED, SPECIFY_VISITED, ENTER_HOW_COME,
- ENTER_ENGLISH_LEVEL, ENTER_RELIGIOUS, EXIT_CONVERSATION) = range(11)
+ ENTER_ENGLISH_LEVEL, ENTER_RELIGIOUS, EXIT_CONVERSATION, SPAM_MESSAGE) = range(12)
 
 
 class Student:
@@ -449,10 +449,10 @@ def finish_conversation(update: Update, context: ContextTypes.context):
     remove_student(update.effective_chat.id)
     return ConversationHandler.END
 
-
 def spam_message(update, context):
     if update.message.chat_id != int(read_config('ADMIN_ID')) and update.message.chat_id != int(
             read_config('ADMIN_ID_3')) and update.message.chat_id != int(read_config('ADMIN_ID_2')):
+        print("not admin")
         return ConversationHandler.END
     students = get_spreadsheets_data().get('users_to_spam').values.tolist()
     receivers = ''
@@ -464,20 +464,38 @@ def spam_message(update, context):
             receivers = ''
     context.bot.send_message(chat_id=update.message.chat_id,
                              text=get_text('MESSAGE_TO_SPAM').format(len(students), receivers))
-    return 0
+    return SPAM_MESSAGE
 
 
 def ask_spam_message_text(update, context):
     chats = get_chats()
     current_chat_id = update.message.chat_id
+    message_type = "text"
+    message_caption = update.message.caption
+    if len(update.message.photo) > 0:
+        message_type = "photo"
+    if update.message.video:
+        print(update.message.video.get_file().file_id)
+        message_type = "video"
     try:
         for chat in chats:
             student = find_student(chat)
             try:
-                context.bot.send_message(chat_id=int(chat), text=update.message.text)
-                time.sleep(1)
+                match message_type:
+                    case "text":
+                        context.bot.send_message(chat_id=int(chat), text=update.message.text)
+                    case "photo":
+                        context.bot.send_photo(chat_id=int(chat), photo=update.message.photo[-1].file_id,
+                                               caption=message_caption)
+                    case "video":
+                        video_file = update.message.video.get_file()
+                        context.bot.send_video(chat_id=int(chat), video=video_file.file_id,
+                                               caption=message_caption)
+                    case _:
+                        return context.bot.send_message(chat_id=current_chat_id, text="invalid message type")
+                time.sleep(2)
                 context.bot.send_message(chat_id=current_chat_id, text=f'sent to {student.name}, id = {student.id}')
-                time.sleep(1)
+                time.sleep(2)
             except telegram.error.Unauthorized:
                 report_error(context.bot, current_chat_id, f'{student.name} has blocked me((')
             except telegram.error.BadRequest:
@@ -578,7 +596,7 @@ def main():
     send_spam_conversation_handler = ConversationHandler(
         entry_points=[MessageHandler(Filters.text('spam_message'), spam_message)],
         states={
-            0: [MessageHandler(Filters.text & (~ Filters.command), ask_spam_message_text)],
+            SPAM_MESSAGE: [MessageHandler(~ Filters.command, ask_spam_message_text)],
         },
         fallbacks=[CommandHandler('cancel', cancel_conversation)]
     )
