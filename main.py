@@ -432,6 +432,10 @@ def exit_conversation(update, context):
         context.bot.send_message(chat_id=int(read_config('ADMIN_ID')),
                                  text=f'failed to register. user is '
                                       f'{context.user_data.get("name")}; {context.user_data.get("nickname")}')
+        context.bot.send_message(chat_id=int(read_config('ADMIN_ID')),
+                                 text=f'full user data: '
+                                      f'{context.user_data.get("id")} {context.user_data.get("name")} {context.user_data.get("phone")} {context.user_data.get("nickname")} {context.user_data.get("sex")} {context.user_data.get("uni")} {context.user_data.get("course")} {context.user_data.get("visited")} {context.user_data.get("specified_visited")} {context.user_data.get("how_come")} {context.user_data.get("english_level")} {context.user_data.get("religious")}')
+
     finally:
         show_menu(update, context)
         return ConversationHandler.END
