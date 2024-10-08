@@ -497,9 +497,9 @@ def ask_spam_message_text(update, context):
                                                caption=message_caption)
                     case _:
                         return context.bot.send_message(chat_id=current_chat_id, text="invalid message type")
-                time.sleep(2)
+                time.sleep(1)
                 context.bot.send_message(chat_id=current_chat_id, text=f'sent to {student.name}, id = {student.id}')
-                time.sleep(2)
+                time.sleep(1)
             except telegram.error.Unauthorized:
                 report_error(context.bot, current_chat_id, f'{student.name} has blocked me((')
             except telegram.error.BadRequest:
