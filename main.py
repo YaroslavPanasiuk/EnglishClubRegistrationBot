@@ -454,8 +454,9 @@ def finish_conversation(update: Update, context: ContextTypes.context):
     return ConversationHandler.END
 
 def spam_message(update, context):
-    if update.message.chat_id != int(read_config('ADMIN_ID')) and update.message.chat_id != int(
-            read_config('ADMIN_ID_3')) and update.message.chat_id != int(read_config('ADMIN_ID_2')):
+    if (update.message.chat_id != int(read_config('ADMIN_ID')) and update.message.chat_id != int(
+            read_config('ADMIN_ID_3')) and update.message.chat_id != int(read_config('ADMIN_ID_2')) and
+            update.message.chat_id != int(read_config('ADMIN_ID_4'))):
         print("not admin")
         return ConversationHandler.END
     students = get_spreadsheets_data().get('users_to_spam').values.tolist()
@@ -587,7 +588,7 @@ def main():
     print("start")
     update_texts()
     backup_table()
-    updater = Updater(read_config("BOT_TOKEN"), use_context=True)
+    updater = Updater(read_config("TEST_BOT_TOKEN"), use_context=True)
     dispatcher = updater.dispatcher
     dispatcher.add_handler(CommandHandler('start', start_command))
     dispatcher.add_handler(CommandHandler('menu', show_menu))
