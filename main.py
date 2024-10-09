@@ -428,11 +428,11 @@ def exit_conversation(update, context):
     try:
         add_student(list(context.user_data.values()))
     except:
-        context.bot.send_message(chat_id=int(read_config('ADMIN_ID')), text=traceback.format_exc())
-        context.bot.send_message(chat_id=int(read_config('ADMIN_ID')),
+        context.bot.send_message(chat_id=int(read_config('SUPER_ADMIN_ID')), text=traceback.format_exc())
+        context.bot.send_message(chat_id=int(read_config('SUPER_ADMIN_ID')),
                                  text=f'failed to register. user is '
                                       f'{context.user_data.get("name")}; {context.user_data.get("nickname")}')
-        context.bot.send_message(chat_id=int(read_config('ADMIN_ID')),
+        context.bot.send_message(chat_id=int(read_config('SUPER_ADMIN_ID')),
                                  text=f'full user data: '
                                       f'{context.user_data.get("id")} {context.user_data.get("name")} {context.user_data.get("phone")} {context.user_data.get("nickname")} {context.user_data.get("sex")} {context.user_data.get("uni")} {context.user_data.get("course")} {context.user_data.get("visited")} {context.user_data.get("specified_visited")} {context.user_data.get("how_come")} {context.user_data.get("english_level")} {context.user_data.get("religious")}')
 
@@ -453,10 +453,17 @@ def finish_conversation(update: Update, context: ContextTypes.context):
     remove_student(update.effective_chat.id)
     return ConversationHandler.END
 
+
+def is_admin(id: int):
+    admins = read_config("ADMIN_IDS").split(" ")
+    for i in range(len(admins)):
+        if int(admins[i]) == id:
+            return True
+    return False
+
+
 def spam_message(update, context):
-    if (update.message.chat_id != int(read_config('ADMIN_ID')) and update.message.chat_id != int(
-            read_config('ADMIN_ID_3')) and update.message.chat_id != int(read_config('ADMIN_ID_2')) and
-            update.message.chat_id != int(read_config('ADMIN_ID_4'))):
+    if not is_admin(update.message.chat_id):
         print("not admin")
         return ConversationHandler.END
     students = get_spreadsheets_data().get('users_to_spam').values.tolist()
@@ -507,8 +514,8 @@ def ask_spam_message_text(update, context):
                 report_error(context.bot, current_chat_id, f'{student.name} has not yet contacted me')
         context.bot.send_message(chat_id=current_chat_id, text='sentAll')
     except:
-        context.bot.send_message(chat_id=int(read_config('ADMIN_ID')), text=traceback.format_exc())
-        if current_chat_id != int(read_config('ADMIN_ID')):
+        context.bot.send_message(chat_id=int(read_config('SUPER_ADMIN_ID')), text=traceback.format_exc())
+        if current_chat_id != int(read_config('SUPER_ADMIN_ID')):
             time.sleep(1)
             context.bot.send_message(chat_id=update.message.chat_id, text=traceback.format_exc())
     finally:
@@ -516,8 +523,8 @@ def ask_spam_message_text(update, context):
 
 
 def report_error(bot, chat_id, msg):
-    bot.send_message(chat_id=int(read_config('ADMIN_ID')), text=msg)
-    if chat_id != int(read_config('ADMIN_ID')):
+    bot.send_message(chat_id=int(read_config('SUPER_ADMIN_ID')), text=msg)
+    if chat_id != int(read_config('SUPER_ADMIN_ID')):
         time.sleep(1)
         bot.send_message(chat_id=chat_id, text=msg)
 
@@ -588,7 +595,7 @@ def main():
     print("start")
     update_texts()
     backup_table()
-    updater = Updater(read_config("TEST_BOT_TOKEN"), use_context=True)
+    updater = Updater(read_config("BOT_TOKEN"), use_context=True)
     dispatcher = updater.dispatcher
     dispatcher.add_handler(CommandHandler('start', start_command))
     dispatcher.add_handler(CommandHandler('menu', show_menu))
