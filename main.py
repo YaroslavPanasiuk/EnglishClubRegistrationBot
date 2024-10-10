@@ -617,7 +617,7 @@ def main():
     print("start")
     update_texts()
     backup_table()
-    updater = Updater(read_config("TEST_BOT_TOKEN"), use_context=True)
+    updater = Updater(read_config("BOT_TOKEN"), use_context=True)
     dispatcher = updater.dispatcher
     dispatcher.add_handler(CommandHandler('start', start_command))
     dispatcher.add_handler(CommandHandler('menu', show_menu))
