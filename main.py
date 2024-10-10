@@ -22,6 +22,7 @@ from googleapiclient.errors import HttpError
 
 (ENTER_NAME, ENTER_PHONE, ENTER_SEX, ENTER_UNI, ENTER_COURSE, ENTER_VISITED, SPECIFY_VISITED, ENTER_HOW_COME,
  ENTER_ENGLISH_LEVEL, ENTER_RELIGIOUS, EXIT_CONVERSATION, SPAM_MESSAGE) = range(12)
+REGISTRATION_IS_CLOSED = False
 
 
 class Student:
@@ -299,6 +300,11 @@ def start_command(update, context):
 
 
 def ask_name(update, context):
+    if REGISTRATION_IS_CLOSED:
+        context.bot.send_message(chat_id=update.message.chat_id, text=get_text('REGISTRAION_IS_STOPPED'),
+                                 reply_markup=get_menu_markup())
+        update_texts()
+        return ConversationHandler.END
     if find_student(update.message.chat_id) is not None:
         context.bot.send_message(chat_id=update.message.chat_id, text=get_text('INVALID_REGISTRATION'),
                                  reply_markup=get_menu_markup())
@@ -591,11 +597,27 @@ def record_tutor_time(update, context):
     context.bot.send_message(query.message.chat_id, text=text)
 
 
+def close_registration(update, context):
+    if not is_admin(update.message.chat_id):
+        return
+    global REGISTRATION_IS_CLOSED
+    REGISTRATION_IS_CLOSED = True
+    context.bot.send_message(chat_id=update.message.chat_id, text=get_text('REGISTRATION_CLOSED'))
+
+
+def open_registration(update, context):
+    if not is_admin(update.message.chat_id):
+        return
+    global REGISTRATION_IS_CLOSED
+    REGISTRATION_IS_CLOSED = False
+    context.bot.send_message(chat_id=update.message.chat_id, text=get_text('REGISTRATION_OPENED'))
+
+
 def main():
     print("start")
     update_texts()
     backup_table()
-    updater = Updater(read_config("BOT_TOKEN"), use_context=True)
+    updater = Updater(read_config("TEST_BOT_TOKEN"), use_context=True)
     dispatcher = updater.dispatcher
     dispatcher.add_handler(CommandHandler('start', start_command))
     dispatcher.add_handler(CommandHandler('menu', show_menu))
@@ -630,6 +652,8 @@ def main():
     )
     dispatcher.add_handler(register_conversation_handler)
     dispatcher.add_handler(CommandHandler('restart_registration', finish_conversation))
+    dispatcher.add_handler(CommandHandler('close_registration', close_registration))
+    dispatcher.add_handler(CommandHandler('open_registration', open_registration))
     dispatcher.add_handler(send_spam_conversation_handler)
     dispatcher.add_handler(CallbackQueryHandler(tutor_time_register, pattern='tutor_time_register'))
     dispatcher.add_handler(CallbackQueryHandler(record_tutor_time))

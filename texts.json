@@ -50,5 +50,8 @@
     "MESSAGE_TO_SPAM": "Введіть повідомлення для розсилки {0} людям:\n{1}\n(/cancel - відмінити)",
     "YES": "Так",
     "NO": "Ні",
-    "CANCEL_SPAMMING": "canceled spamming"
+    "CANCEL_SPAMMING": "canceled spamming",
+    "REGISTRAION_IS_STOPPED": "Сорі, реєстрація на разі закрита(",
+    "REGISTRATION_CLOSED": "successfully closed the registration",
+    "REGISTRATION_OPENED": "successfully opened the registration"
 }
