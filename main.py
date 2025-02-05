@@ -86,19 +86,19 @@ def get_spreadsheets_data():
                                            range=read_config('SPAM_RANGE_NAME')).execute().get('values', [])
         if not registered_users:
             print('No users found.')
-            return
-        #if not tutor_times:
-        #    print('No tutor_times found.')
-        #    return
-        users_df = pd.DataFrame(registered_users)
-        users_df.columns = users_df.iloc[0]
-        users_df = users_df[1:]
-        #tutor_times_df = pd.DataFrame(tutor_times)
-        #tutor_times_df.columns = tutor_times_df.iloc[0]
-        #tutor_times_df = tutor_times_df[1:]
-        users_to_spam_df = pd.DataFrame(users_to_spam)
-        users_to_spam_df.columns = users_to_spam_df.iloc[0]
-        users_to_spam_df = users_to_spam_df[1:]
+            users_df = pd.DataFrame([])
+        else:
+            users_df = pd.DataFrame(registered_users)
+            users_df.columns = users_df.iloc[0]
+            users_df = users_df[1:]
+
+        if not users_to_spam:
+            print('No users found.')
+            users_to_spam_df = pd.DataFrame([])
+        else:
+            users_to_spam_df = pd.DataFrame(users_to_spam)
+            users_to_spam_df.columns = users_to_spam_df.iloc[0]
+            users_to_spam_df = users_to_spam_df[1:]
         return {'registered_users': users_df, 'users_to_spam': users_to_spam_df}
 
     except HttpError as err:
