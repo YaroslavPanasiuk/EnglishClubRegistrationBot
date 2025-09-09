@@ -3,6 +3,7 @@ from __future__ import print_function
 import collections
 import json
 import os
+import sys
 import os.path
 import re
 from pathlib import Path
@@ -676,6 +677,13 @@ def open_registration(update, context):
     context.bot.send_message(chat_id=update.message.chat_id, text=get_text('REGISTRATION_OPENED'))
 
 
+def restart_bot(update, context):
+    if not is_admin(update.message.chat_id):
+        return
+    context.bot.send_message(chat_id=update.message.chat_id, text=get_text('RESTART_BOT'))
+    os.execv(sys.executable, ['python'] + sys.argv)
+
+
 def main():
     print("start")
     update_texts()
@@ -718,6 +726,7 @@ def main():
     dispatcher.add_handler(CommandHandler('restart_registration', finish_conversation))
     dispatcher.add_handler(CommandHandler('close_registration', close_registration))
     dispatcher.add_handler(CommandHandler('open_registration', open_registration))
+    dispatcher.add_handler(CommandHandler('restart_bot', restart_bot))
     dispatcher.add_handler(send_spam_conversation_handler)
     #dispatcher.add_handler(CallbackQueryHandler(tutor_time_register, pattern='tutor_time_register'))
     #dispatcher.add_handler(CallbackQueryHandler(record_tutor_time))

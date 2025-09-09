@@ -1,1 +1,4 @@
 config.txt
+data/students.csv
+data/students.json
+data/texts.json
