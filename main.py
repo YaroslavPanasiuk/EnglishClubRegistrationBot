@@ -5,6 +5,7 @@ import json
 import os
 import os.path
 import re
+from pathlib import Path
 import time
 import traceback
 import pandas as pd
@@ -19,6 +20,7 @@ from google.oauth2.credentials import Credentials
 from google_auth_oauthlib.flow import InstalledAppFlow
 from googleapiclient.discovery import build
 from googleapiclient.errors import HttpError
+from typing import List, Dict, Any
 
 (ENTER_NAME, ENTER_PHONE, ENTER_SEX, ENTER_UNI, ENTER_COURSE, ENTER_VISITED, SPECIFY_VISITED, ENTER_HOW_COME,
  ENTER_ENGLISH_LEVEL, ENTER_RELIGIOUS, EXIT_CONVERSATION, SPAM_MESSAGE) = range(12)
@@ -41,6 +43,39 @@ class Student:
         self.how_come = values[9]
         self.english_level = values[10]
         self.religious = values[11]
+
+    def to_dict(self) -> Dict[str, Any]:
+        return {
+            'id': self.id,
+            'name': self.name,
+            'phone': self.phone,
+            'nickname': self.nickname,
+            'sex': self.sex,
+            'uni': self.uni,
+            'course': self.course,
+            'visited': self.visited,
+            'specified_visited': self.specified_visited,
+            'how_come': self.how_come,
+            'english_level': self.english_level,
+            'religious': self.religious
+        }
+    
+    @classmethod
+    def from_dict(cls, data: Dict[str, Any]) -> 'Student':
+        return cls(
+            id = data["id"],
+            name = data["name"],
+            phone = data["phone"],
+            nickname = data["nickname"],
+            sex = data["sex"],
+            uni = data["uni"],
+            course = data["cource"],
+            visited = data["visited"],
+            specified_visited = data["specified_visited"],
+            how_come = data["how_come"],
+            english_level = data["english_level"],
+            religious = data["religious"]
+        )
 
 
 def read_config(value) -> str:
@@ -121,6 +156,12 @@ def add_student(data: []):
         ]}
     service.spreadsheets().values().batchUpdate(spreadsheetId=read_config("SAMPLE_SPREADSHEET_ID"),
                                                 body=range_body_values).execute()
+    
+    students = load_students_from_json('students.json')
+    students.append(Student(data))
+    student_dicts = [student.to_dict() for student in students]
+    with open('students.json', 'w') as f:
+        f.write(json.dumps(student_dicts, indent=4, ensure_ascii=False))
 
 
 def available_tutor_times():
@@ -130,12 +171,37 @@ def available_tutor_times():
     return list(collections.OrderedDict.fromkeys(df.loc[mask, 'Date and time']))
 
 
+def load_students_from_json(filename: str) -> List[Student]:
+    with open(filename, 'r') as f:
+        students_data = json.load(f)
+    return [Student.from_dict(student_data) for student_data in students_data]
+
+
 def find_student(telegram_id: int):
     data = get_spreadsheets_data()
     df = pd.concat([data.get('registered_users'), data.get('users_to_spam')], ignore_index=True)
     if not df.loc[df['id'] == str(telegram_id)].values.flatten().tolist():
         return None
     return Student(df.loc[df['id'] == str(telegram_id)].values.flatten().tolist())
+
+
+def sync_local_students():
+    data = get_spreadsheets_data()
+    df = data.get('registered_users')
+    students = [Student([*row[1:13]]) for row in df.itertuples()]
+    student_dicts = [student.to_dict() for student in students]
+    print(student_dicts)
+    with open('students.json', 'w') as f:
+        f.write(json.dumps(student_dicts, indent=4, ensure_ascii=False))
+    
+
+
+def find_student_local(telegram_id: int):
+    students = load_students_from_json('students.json')
+    for student in students:
+        if student.id == telegram_id:
+            return student
+    return None
 
 
 def backup_table():
@@ -305,7 +371,7 @@ def ask_name(update, context):
                                  reply_markup=get_menu_markup())
         update_texts()
         return ConversationHandler.END
-    if find_student(update.message.chat_id) is not None:
+    if find_student_local(update.message.chat_id) is not None:
         context.bot.send_message(chat_id=update.message.chat_id, text=get_text('INVALID_REGISTRATION'),
                                  reply_markup=get_menu_markup())
         update_texts()
@@ -615,9 +681,10 @@ def open_registration(update, context):
 
 def main():
     print("start")
-    update_texts()
+    #update_texts()
+    sync_local_students()
     backup_table()
-    updater = Updater(read_config("BOT_TOKEN"), use_context=True)
+    updater = Updater(read_config("TEST_BOT_TOKEN"), use_context=True)
     dispatcher = updater.dispatcher
     dispatcher.add_handler(CommandHandler('start', start_command))
     dispatcher.add_handler(CommandHandler('menu', show_menu))
