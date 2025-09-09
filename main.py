@@ -21,7 +21,8 @@ from googleapiclient.discovery import build
 from googleapiclient.errors import HttpError
 
 (ENTER_NAME, ENTER_PHONE, ENTER_SEX, ENTER_UNI, ENTER_COURSE, ENTER_VISITED, SPECIFY_VISITED, ENTER_HOW_COME,
- ENTER_ENGLISH_LEVEL, ENTER_RELIGIOUS, EXIT_CONVERSATION) = range(11)
+ ENTER_ENGLISH_LEVEL, ENTER_RELIGIOUS, EXIT_CONVERSATION, SPAM_MESSAGE) = range(12)
+REGISTRATION_IS_CLOSED = False
 
 
 class Student:
@@ -85,19 +86,19 @@ def get_spreadsheets_data():
                                            range=read_config('SPAM_RANGE_NAME')).execute().get('values', [])
         if not registered_users:
             print('No users found.')
-            return
-        #if not tutor_times:
-        #    print('No tutor_times found.')
-        #    return
-        users_df = pd.DataFrame(registered_users)
-        users_df.columns = users_df.iloc[0]
-        users_df = users_df[1:]
-        #tutor_times_df = pd.DataFrame(tutor_times)
-        #tutor_times_df.columns = tutor_times_df.iloc[0]
-        #tutor_times_df = tutor_times_df[1:]
-        users_to_spam_df = pd.DataFrame(users_to_spam)
-        users_to_spam_df.columns = users_to_spam_df.iloc[0]
-        users_to_spam_df = users_to_spam_df[1:]
+            users_df = pd.DataFrame([])
+        else:
+            users_df = pd.DataFrame(registered_users)
+            users_df.columns = users_df.iloc[0]
+            users_df = users_df[1:]
+
+        if not users_to_spam:
+            print('No users found.')
+            users_to_spam_df = pd.DataFrame([])
+        else:
+            users_to_spam_df = pd.DataFrame(users_to_spam)
+            users_to_spam_df.columns = users_to_spam_df.iloc[0]
+            users_to_spam_df = users_to_spam_df[1:]
         return {'registered_users': users_df, 'users_to_spam': users_to_spam_df}
 
     except HttpError as err:
@@ -299,6 +300,11 @@ def start_command(update, context):
 
 
 def ask_name(update, context):
+    if REGISTRATION_IS_CLOSED:
+        context.bot.send_message(chat_id=update.message.chat_id, text=get_text('REGISTRAION_IS_STOPPED'),
+                                 reply_markup=get_menu_markup())
+        update_texts()
+        return ConversationHandler.END
     if find_student(update.message.chat_id) is not None:
         context.bot.send_message(chat_id=update.message.chat_id, text=get_text('INVALID_REGISTRATION'),
                                  reply_markup=get_menu_markup())
@@ -428,10 +434,14 @@ def exit_conversation(update, context):
     try:
         add_student(list(context.user_data.values()))
     except:
-        context.bot.send_message(chat_id=int(read_config('ADMIN_ID')), text=traceback.format_exc())
-        context.bot.send_message(chat_id=int(read_config('ADMIN_ID')),
+        context.bot.send_message(chat_id=int(read_config('SUPER_ADMIN_ID')), text=traceback.format_exc())
+        context.bot.send_message(chat_id=int(read_config('SUPER_ADMIN_ID')),
                                  text=f'failed to register. user is '
                                       f'{context.user_data.get("name")}; {context.user_data.get("nickname")}')
+        context.bot.send_message(chat_id=int(read_config('SUPER_ADMIN_ID')),
+                                 text=f'full user data: '
+                                      f'{context.user_data.get("id")} {context.user_data.get("name")} {context.user_data.get("phone")} {context.user_data.get("nickname")} {context.user_data.get("sex")} {context.user_data.get("uni")} {context.user_data.get("course")} {context.user_data.get("visited")} {context.user_data.get("specified_visited")} {context.user_data.get("how_come")} {context.user_data.get("english_level")} {context.user_data.get("religious")}')
+
     finally:
         show_menu(update, context)
         return ConversationHandler.END
@@ -450,9 +460,17 @@ def finish_conversation(update: Update, context: ContextTypes.context):
     return ConversationHandler.END
 
 
+def is_admin(id: int):
+    admins = read_config("ADMIN_IDS").split(" ")
+    for i in range(len(admins)):
+        if int(admins[i]) == id:
+            return True
+    return False
+
+
 def spam_message(update, context):
-    if update.message.chat_id != int(read_config('ADMIN_ID')) and update.message.chat_id != int(
-            read_config('ADMIN_ID_3')) and update.message.chat_id != int(read_config('ADMIN_ID_2')):
+    if not is_admin(update.message.chat_id):
+        print("not admin")
         return ConversationHandler.END
     students = get_spreadsheets_data().get('users_to_spam').values.tolist()
     receivers = ''
@@ -464,17 +482,35 @@ def spam_message(update, context):
             receivers = ''
     context.bot.send_message(chat_id=update.message.chat_id,
                              text=get_text('MESSAGE_TO_SPAM').format(len(students), receivers))
-    return 0
+    return SPAM_MESSAGE
 
 
 def ask_spam_message_text(update, context):
     chats = get_chats()
     current_chat_id = update.message.chat_id
+    message_type = "text"
+    message_caption = update.message.caption
+    if len(update.message.photo) > 0:
+        message_type = "photo"
+    if update.message.video:
+        print(update.message.video.get_file().file_id)
+        message_type = "video"
     try:
         for chat in chats:
             student = find_student(chat)
             try:
-                context.bot.send_message(chat_id=int(chat), text=update.message.text)
+                match message_type:
+                    case "text":
+                        context.bot.send_message(chat_id=int(chat), text=update.message.text)
+                    case "photo":
+                        context.bot.send_photo(chat_id=int(chat), photo=update.message.photo[-1].file_id,
+                                               caption=message_caption)
+                    case "video":
+                        video_file = update.message.video.get_file()
+                        context.bot.send_video(chat_id=int(chat), video=video_file.file_id,
+                                               caption=message_caption)
+                    case _:
+                        return context.bot.send_message(chat_id=current_chat_id, text="invalid message type")
                 time.sleep(1)
                 context.bot.send_message(chat_id=current_chat_id, text=f'sent to {student.name}, id = {student.id}')
                 time.sleep(1)
@@ -484,8 +520,8 @@ def ask_spam_message_text(update, context):
                 report_error(context.bot, current_chat_id, f'{student.name} has not yet contacted me')
         context.bot.send_message(chat_id=current_chat_id, text='sentAll')
     except:
-        context.bot.send_message(chat_id=int(read_config('ADMIN_ID')), text=traceback.format_exc())
-        if current_chat_id != int(read_config('ADMIN_ID')):
+        context.bot.send_message(chat_id=int(read_config('SUPER_ADMIN_ID')), text=traceback.format_exc())
+        if current_chat_id != int(read_config('SUPER_ADMIN_ID')):
             time.sleep(1)
             context.bot.send_message(chat_id=update.message.chat_id, text=traceback.format_exc())
     finally:
@@ -493,8 +529,8 @@ def ask_spam_message_text(update, context):
 
 
 def report_error(bot, chat_id, msg):
-    bot.send_message(chat_id=int(read_config('ADMIN_ID')), text=msg)
-    if chat_id != int(read_config('ADMIN_ID')):
+    bot.send_message(chat_id=int(read_config('SUPER_ADMIN_ID')), text=msg)
+    if chat_id != int(read_config('SUPER_ADMIN_ID')):
         time.sleep(1)
         bot.send_message(chat_id=chat_id, text=msg)
 
@@ -561,6 +597,22 @@ def record_tutor_time(update, context):
     context.bot.send_message(query.message.chat_id, text=text)
 
 
+def close_registration(update, context):
+    if not is_admin(update.message.chat_id):
+        return
+    global REGISTRATION_IS_CLOSED
+    REGISTRATION_IS_CLOSED = True
+    context.bot.send_message(chat_id=update.message.chat_id, text=get_text('REGISTRATION_CLOSED'))
+
+
+def open_registration(update, context):
+    if not is_admin(update.message.chat_id):
+        return
+    global REGISTRATION_IS_CLOSED
+    REGISTRATION_IS_CLOSED = False
+    context.bot.send_message(chat_id=update.message.chat_id, text=get_text('REGISTRATION_OPENED'))
+
+
 def main():
     print("start")
     update_texts()
@@ -578,7 +630,7 @@ def main():
     send_spam_conversation_handler = ConversationHandler(
         entry_points=[MessageHandler(Filters.text('spam_message'), spam_message)],
         states={
-            0: [MessageHandler(Filters.text & (~ Filters.command), ask_spam_message_text)],
+            SPAM_MESSAGE: [MessageHandler(~ Filters.command, ask_spam_message_text)],
         },
         fallbacks=[CommandHandler('cancel', cancel_conversation)]
     )
@@ -600,6 +652,8 @@ def main():
     )
     dispatcher.add_handler(register_conversation_handler)
     dispatcher.add_handler(CommandHandler('restart_registration', finish_conversation))
+    dispatcher.add_handler(CommandHandler('close_registration', close_registration))
+    dispatcher.add_handler(CommandHandler('open_registration', open_registration))
     dispatcher.add_handler(send_spam_conversation_handler)
     dispatcher.add_handler(CallbackQueryHandler(tutor_time_register, pattern='tutor_time_register'))
     dispatcher.add_handler(CallbackQueryHandler(record_tutor_time))
