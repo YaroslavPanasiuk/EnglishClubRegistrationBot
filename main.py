@@ -702,7 +702,7 @@ def main():
     dispatcher.add_handler(MessageHandler(Filters.regex(f"^{get_text('ABOUT_US_BUTTON')}$"), send_about_us))
     dispatcher.add_handler(MessageHandler(Filters.regex(f"^{get_text('GOT_QUESTIONS_BUTTON')}$"), send_connect))
     send_spam_conversation_handler = ConversationHandler(
-        entry_points=[MessageHandler(Filters.text('spam_message'), spam_message)],
+        entry_points=[CommandHandler('spam_message', cancel_conversation)],
         states={
             SPAM_MESSAGE: [MessageHandler(~ Filters.command, ask_spam_message_text)],
         },
