@@ -691,6 +691,7 @@ def main():
     update_texts()
     sync_local_students()
     backup_table()
+    print('ready\n')
     updater = Updater(read_config("BOT_TOKEN"), use_context=True)
     dispatcher = updater.dispatcher
     dispatcher.add_handler(CommandHandler('start', start_command))
