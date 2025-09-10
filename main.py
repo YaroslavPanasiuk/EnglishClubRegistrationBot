@@ -1,6 +1,6 @@
 from __future__ import print_function
 
-import collections
+from datetime import datetime
 import json
 import os
 import os.path
@@ -11,15 +11,16 @@ import traceback
 import pandas as pd
 import sys
 import telegram.error
-import asyncio
 import socket
+import requests
+from urllib.parse import quote
 
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup, KeyboardButton, ReplyKeyboardMarkup, \
     ReplyKeyboardRemove, Update
 from telegram.constants import ParseMode
 from telegram.ext import Application, CommandHandler, MessageHandler, filters, CallbackQueryHandler, \
     ConversationHandler, ContextTypes
-from google.auth.transport import requests as google_requests
+from google.auth.transport.requests import Request
 from google.oauth2.credentials import Credentials
 from google_auth_oauthlib.flow import InstalledAppFlow
 from googleapiclient.discovery import build
@@ -47,6 +48,7 @@ class Student:
         self.how_come = values[9]
         self.english_level = values[10]
         self.religious = values[11]
+        self.registration_time = values[12]
 
     def to_dict(self) -> Dict[str, Any]:
         return {
@@ -61,25 +63,9 @@ class Student:
             'specified_visited': self.specified_visited,
             'how_come': self.how_come,
             'english_level': self.english_level,
-            'religious': self.religious
+            'religious': self.religious,
+            'registration_time': self.registration_time
         }
-    
-    @classmethod
-    def from_dict(cls, data: Dict[str, Any]) -> 'Student':
-        return cls([
-            data["id"],
-            data["name"],
-            data["phone"],
-            data["nickname"],
-            data["sex"],
-            data["uni"],
-            data["course"],
-            data["visited"],
-            data["specified_visited"],
-            data["how_come"],
-            data["english_level"],
-            data["religious"]
-        ])
 
 
 def read_config(value) -> str:
@@ -99,171 +85,348 @@ def read_config(value) -> str:
 def connect_to_spreadsheets():
     creds = None
     scopes = [read_config("SCOPES")]
-    
-    # Force IPv4 for this connection
-    socket.setdefaulttimeout(30)
-    
     if os.path.exists('token.json'):
         try:
             creds = Credentials.from_authorized_user_file('token.json', scopes)
         except Exception as e:
             print(f"Error loading credentials: {e}")
-            os.remove('token.json')
+            creds = None
     
     if not creds or not creds.valid:
-        try:
-            if creds and creds.expired and creds.refresh_token:
-                # Create a custom request with IPv4 forcing
-                ipv4_request = google_requests.Request()
-                creds.refresh(ipv4_request)
-            else:
-                flow = InstalledAppFlow.from_client_secrets_file(
-                    'credentials.json', scopes)
-                # For the local server flow, we need to handle this differently
-                creds = flow.run_local_server(port=0, open_browser=False)
-            
-            with open('token.json', 'w') as token:
-                token.write(creds.to_json())
-                
-        except Exception as e:
-            print(f"Authentication failed: {e}")
-            raise
+        if creds and creds.expired and creds.refresh_token:
+            try:
+                creds.refresh(Request())
+            except Exception as e:
+                print(f"Error refreshing credentials: {e}")
+                creds = None
+        else:
+            try:
+                flow = InstalledAppFlow.from_client_secrets_file('credentials.json', scopes)
+                creds = flow.run_local_server(port=0)
+            except Exception as e:
+                print(f"Error during OAuth flow: {e}")
+                raise
     
     return creds
 
 
-def get_students_from_spreadsheets(service=None):
+def get_sheets_values(spreadsheet_id, range_name):
+    """Get values from Google Sheets using requests directly."""
+    creds = connect_to_spreadsheets()
+    if not creds or not creds.valid:
+        print("No valid credentials available")
+        return None
+        
+    access_token = creds.token
+    # URL encode the range name to handle special characters
+    encoded_range = quote(range_name)
+    url = f"https://sheets.googleapis.com/v4/spreadsheets/{spreadsheet_id}/values/{encoded_range}"
+    
+    headers = {
+        "Authorization": f"Bearer {access_token}",
+        "Content-Type": "application/json"
+    }
+    
     try:
-        if service is None:
-            service = build('sheets', 'v4', credentials=connect_to_spreadsheets())
-        sheet = service.spreadsheets()
-        registered_users = sheet.values().get(spreadsheetId=read_config("SAMPLE_SPREADSHEET_ID"),
-                                              range=read_config('REGISTRATION_RANGE_NAME')).execute().get('values', [])
-        if not registered_users:
+        # Force IPv4 to avoid IPv6 issues
+        original_getaddrinfo = socket.getaddrinfo
+        socket.getaddrinfo = lambda *args, **kwargs: original_getaddrinfo(*args, **kwargs)[:1]  # Force IPv4
+        response = requests.get(url, headers=headers, timeout=30)
+        socket.getaddrinfo = original_getaddrinfo  # Restore original function
+    except Exception as e:
+        print(f"Request to Sheets API failed: {e}")
+        return None
+        
+    if response.status_code == 200:
+        return response.json()
+    else:
+        print(f"Sheets API error: {response.status_code} - {response.text}")
+        return None
+
+
+def get_students_from_spreadsheets():
+    try:
+        spreadsheet_id = read_config("SAMPLE_SPREADSHEET_ID")
+        range_name = read_config('REGISTRATION_RANGE_NAME')
+        
+        data = get_sheets_values(spreadsheet_id, range_name)
+        if not data or 'values' not in data:
             print('No users found.')
-            users_df = pd.DataFrame([])
-        else:
-            users_df = pd.DataFrame(registered_users)
-            users_df.columns = users_df.iloc[0]
-            users_df = users_df[1:]
+            return pd.DataFrame([])
+            
+        registered_users = data['values']
+        users_df = pd.DataFrame(registered_users)
+        users_df.columns = users_df.iloc[0]
+        users_df = users_df[1:]
         return users_df
 
-    except HttpError as err:
-        print(err)
+    except Exception as err:
+        print(f"Error getting students: {err}")
+        return pd.DataFrame([])
 
 
 def get_students_to_spam_from_spreadsheets():
     try:
-        service = build('sheets', 'v4', credentials=connect_to_spreadsheets())
-        sheet = service.spreadsheets()
-        users_to_spam = sheet.values().get(spreadsheetId=read_config("SAMPLE_SPREADSHEET_ID"),
-                                           range=read_config('SPAM_RANGE_NAME')).execute().get('values', [])
-        if not users_to_spam:
+        spreadsheet_id = read_config("SAMPLE_SPREADSHEET_ID")
+        range_name = read_config('SPAM_RANGE_NAME')
+        
+        data = get_sheets_values(spreadsheet_id, range_name)
+        if not data or 'values' not in data:
             print('No users found.')
-            users_to_spam_df = pd.DataFrame([])
-        else:
-            users_to_spam_df = pd.DataFrame(users_to_spam)
-            users_to_spam_df.columns = users_to_spam_df.iloc[0]
-            users_to_spam_df = users_to_spam_df[1:]
+            return pd.DataFrame([])
+            
+        users_to_spam = data['values']
+        users_to_spam_df = pd.DataFrame(users_to_spam)
+        users_to_spam_df.columns = users_to_spam_df.iloc[0]
+        users_to_spam_df = users_to_spam_df[1:]
         return users_to_spam_df
 
-    except HttpError as err:
-        print(err)
+    except Exception as err:
+        print(f"Error getting spam users: {err}")
+        return pd.DataFrame([])
+
+
+def get_reserve_from_spreadsheets():
+    try:
+        spreadsheet_id = read_config("SAMPLE_SPREADSHEET_ID")
+        range_name = read_config('RESERVE_RANGE_NAME')
+        
+        data = get_sheets_values(spreadsheet_id, range_name)
+        if not data or 'values' not in data:
+            print('No users found.')
+            return pd.DataFrame([])
+            
+        users_to_spam = data['values']
+        users_to_spam_df = pd.DataFrame(users_to_spam)
+        users_to_spam_df.columns = users_to_spam_df.iloc[0]
+        users_to_spam_df = users_to_spam_df[1:]
+        return users_to_spam_df
+
+    except Exception as err:
+        print(f"Error getting spam users: {err}")
+        return pd.DataFrame([])
 
 
 def add_student(data: []):
-    service = build('sheets', 'v4', credentials=connect_to_spreadsheets())
-    df = get_students_from_spreadsheets(service)
-    data_range = 'A{0}:L{0}'.format(str(len(df) + 2))
-    range_body_values = {
-        'value_input_option': 'USER_ENTERED',
-        'data': [
-            {
-                'majorDimension': 'ROWS',
-                'range': data_range,
-                'values': [data]
-            },
-        ]}
-    service.spreadsheets().values().batchUpdate(spreadsheetId=read_config("SAMPLE_SPREADSHEET_ID"),
-                                                body=range_body_values).execute()
-    
-    new_row = pd.DataFrame([data], columns=df.columns)
-    df = pd.concat([df, new_row], axis=0)
-    df.to_csv('data/students.csv', index=False)
+    try:
+        creds = connect_to_spreadsheets()
+        if not creds:
+            print("No credentials for adding student")
+            return
+            
+        access_token = creds.token
+        spreadsheet_id = read_config("SAMPLE_SPREADSHEET_ID")
+        
+        # First get current data to determine where to append
+        current_data = get_sheets_values(spreadsheet_id, read_config('REGISTRATION_RANGE_NAME'))
+        if current_data and 'values' in current_data:
+            next_row = len(current_data['values']) + 1
+        else:
+            next_row = 2  # Header row + first data row
+            
+        range_name = f"A{next_row}:M{next_row}"
+        url = f"https://sheets.googleapis.com/v4/spreadsheets/{spreadsheet_id}/values/{range_name}?valueInputOption=USER_ENTERED"
+        
+        headers = {
+            "Authorization": f"Bearer {access_token}",
+            "Content-Type": "application/json"
+        }
+        
+        body = {
+            "values": [data]
+        }
+        
+        # Force IPv4
+        original_getaddrinfo = socket.getaddrinfo
+        socket.getaddrinfo = lambda *args, **kwargs: original_getaddrinfo(*args, **kwargs)[:1]
+        response = requests.put(url, headers=headers, json=body, timeout=30)
+        socket.getaddrinfo = original_getaddrinfo
+        
+        if response.status_code == 200:
+            print("Student added successfully")
+            # Also update local CSV
+            df = pd.read_csv('data/students.csv') if os.path.exists('data/students.csv') else pd.DataFrame(columns=[
+                'id', 'name', 'phone', 'nickname', 'sex', 'uni', 'course', 
+                'visited', 'specified_visited', 'how_come', 'english_level', 'religious'
+            ])
+            new_row = pd.DataFrame([data], columns=df.columns)
+            df = pd.concat([df, new_row], ignore_index=True)
+            df.to_csv('data/students.csv', index=False)
+        else:
+            print(f"Failed to add student: {response.status_code} - {response.text}")
+            
+    except Exception as e:
+        print(f"Error in add_student: {e}")
 
 
 def load_students_fromc_csv(filename: str) -> List[Student]:
     df = pd.read_csv('data/students.csv')
-    return [Student([*row[0:12]]) for _, row in df.iterrows()]
+    return [Student([*row[0:13]]) for _, row in df.iterrows()]
 
 
 def find_student(telegram_id: int):
     df = get_students_from_spreadsheets()
-    if not df.loc[df['id'] == telegram_id].values.flatten().tolist():
+    if df.empty or not df.loc[df['id'] == telegram_id].values.flatten().tolist():
         return None
     return Student(df.loc[df['id'] == telegram_id].values.flatten().tolist())
 
 
 def sync_local_students():
-    df = get_students_from_spreadsheets()
-    df.to_csv('data/students.csv', index=False)
+    try:
+        df = get_students_from_spreadsheets()
+        df.to_csv('data/students.csv', index=False)
+    except Exception as e:
+        print(f"Sync failed: {e}")
+        # Continue with existing local data
     
 
 def find_student_local(telegram_id: int):
+    if not os.path.exists('data/students.csv'):
+        return None
     df = pd.read_csv('data/students.csv')
-    if not df.loc[df['id'] == telegram_id].values.flatten().tolist():
+    if df.empty or not df.loc[df['id'] == telegram_id].values.flatten().tolist():
         return None
     return Student(df.loc[df['id'] == telegram_id].values.flatten().tolist())
 
 
 def backup_table():
-    data = get_students_from_spreadsheets().values.tolist()
-    range_body_values = {
-        'value_input_option': 'USER_ENTERED',
-        'data': [
-            {
-                'majorDimension': 'ROWS',
-                'range': 'Reserve!A1:L1000',
-                'values': data
-            },
-        ]}
-    service = build('sheets', 'v4', credentials=connect_to_spreadsheets())
-    service.spreadsheets().values().batchUpdate(spreadsheetId=read_config("SAMPLE_SPREADSHEET_ID"),
-                                                body=range_body_values).execute()
+    try:
+        new_data = get_students_from_spreadsheets()
+        if new_data.empty:
+            print("No data to backup")
+            return
+        original_data = get_reserve_from_spreadsheets()
+        original_data.loc[-1] = original_data.columns
+        original_data.index = original_data.index + 1
+        original_data = original_data.sort_index()    
+        original_data.columns = new_data.columns
+
+        final_data = pd.concat([original_data, new_data], ignore_index=True)
+        final_data = final_data.drop_duplicates(subset='id', keep="last")
+        empty_rows = pd.DataFrame({col: [""]*len(original_data) for col in final_data.columns})
+        final_data = pd.concat([final_data, empty_rows], ignore_index=True)
+        
+        creds = connect_to_spreadsheets()
+        if not creds:
+            print("No credentials for backup")
+            return
+            
+        access_token = creds.token
+        spreadsheet_id = read_config("SAMPLE_SPREADSHEET_ID")
+        range_name = read_config('RESERVE_RANGE_NAME')
+        url = f"https://sheets.googleapis.com/v4/spreadsheets/{spreadsheet_id}/values/{range_name}?valueInputOption=USER_ENTERED"
+        
+        headers = {
+            "Authorization": f"Bearer {access_token}",
+            "Content-Type": "application/json"
+        }
+        
+        body = {
+            "values": final_data.values.tolist()
+        }
+        
+        # Force IPv4
+        original_getaddrinfo = socket.getaddrinfo
+        socket.getaddrinfo = lambda *args, **kwargs: original_getaddrinfo(*args, **kwargs)[:1]
+        response = requests.put(url, headers=headers, json=body, timeout=30)
+        socket.getaddrinfo = original_getaddrinfo
+        
+        if response.status_code == 200:
+            print("Backup successful")
+        else:
+            print(f"Backup failed: {response.status_code} - {response.text}")
+            
+    except Exception as e:
+        print(f"Error in backup_table: {e}")
 
 
 def remove_student(telegram_id):
-    df = get_students_from_spreadsheets()
-    df = df.loc[df['id'] != str(telegram_id)]
-    data = df.values.tolist()
-    data.append(['']*12)
-    range_body_values = {
-        'value_input_option': 'USER_ENTERED',
-        'data': [
-            {
-                'majorDimension': 'ROWS',
-                'range': 'A2:L1000',
-                'values': data
-            },
-        ]}
-    service = build('sheets', 'v4', credentials=connect_to_spreadsheets())
-    service.spreadsheets().values().batchUpdate(spreadsheetId=read_config("SAMPLE_SPREADSHEET_ID"),
-                                                body=range_body_values).execute()
-    df.to_csv('data/students.csv', index=False)
+    try:
+        df = get_students_from_spreadsheets()
+        df = df.loc[df['id'] != str(telegram_id)]
+        empty_rows = pd.DataFrame({col: [""]*10 for col in df.columns})
+        final_data = pd.concat([df, empty_rows], ignore_index=True)
+        print(final_data)
+
+        
+        # Update the entire sheet
+        creds = connect_to_spreadsheets()
+        if not creds:
+            print("No credentials for remove_student")
+            return
+            
+        access_token = creds.token
+        spreadsheet_id = read_config("SAMPLE_SPREADSHEET_ID")
+        range_name = read_config('REGISTRATION_RANGE_NAME')
+        url = f"https://sheets.googleapis.com/v4/spreadsheets/{spreadsheet_id}/values/{range_name}?valueInputOption=USER_ENTERED"
+        
+        headers = {
+            "Authorization": f"Bearer {access_token}",
+            "Content-Type": "application/json"
+        }
+        
+        # Prepare data with header
+        values = [final_data.columns.tolist()] + final_data.values.tolist()
+        body = {
+            "values": values
+        }
+        
+        # Force IPv4
+        original_getaddrinfo = socket.getaddrinfo
+        socket.getaddrinfo = lambda *args, **kwargs: original_getaddrinfo(*args, **kwargs)[:1]
+        response = requests.put(url, headers=headers, json=body, timeout=30)
+        socket.getaddrinfo = original_getaddrinfo
+        
+        if response.status_code == 200:
+            print("Student removed successfully")
+            # Update local CSV
+            df.to_csv('data/students.csv', index=False)
+        else:
+            print(f"Failed to remove student: {response.status_code} - {response.text}")
+            
+    except Exception as e:
+        print(f"Error in remove_student: {e}")
 
 
 def update_texts():
-    service = build('sheets', 'v4', credentials=connect_to_spreadsheets()) 
-    sheet = service.spreadsheets()
-    questions = (sheet.values().get(spreadsheetId=read_config("SAMPLE_SPREADSHEET_ID"),
-                                    range=read_config('TEXTS_RANGE_NAME')).execute()).get('values', [])
-    file = open("data/texts.json", "w", encoding='UTF-8')
-    data = pd.DataFrame(questions).values
-    dictionary = {}
-    for row in data:
-        dictionary[row[0]] = row[1]
-    file.write(json.dumps(dictionary, indent=4, ensure_ascii=False))
-    file.close()
+    try:
+        spreadsheet_id = read_config("SAMPLE_SPREADSHEET_ID")
+        range_name = read_config('TEXTS_RANGE_NAME')
+        
+        data = get_sheets_values(spreadsheet_id, range_name)
+        if not data or 'values' not in data:
+            print("No data found in the specified range")
+            use_cached_texts()
+            return
+            
+        questions = data['values']
+        os.makedirs('data', exist_ok=True)
+        with open("data/texts.json", "w", encoding='UTF-8') as file:
+            data_df = pd.DataFrame(questions)
+            dictionary = {}
+            for row in data_df.values:
+                if len(row) >= 2:
+                    dictionary[row[0]] = row[1]
+            json.dump(dictionary, file, indent=4, ensure_ascii=False)
+        print("Texts updated successfully")
+        
+    except Exception as e:
+        print(f"Error in update_texts: {e}")
+        use_cached_texts()
+
+
+def use_cached_texts():
+    """Use locally cached texts if Google Sheets is unavailable"""
+    try:
+        if os.path.exists('data/texts.json'):
+            print("Using cached texts from previous successful update")
+            return True
+        else:
+            print("No cached texts available.")
+            return False
+    except Exception as e:
+        print(f"Failed to use cached texts: {e}")
+        return False
 
 
 def get_menu_markup():
@@ -276,12 +439,15 @@ def get_menu_markup():
 
 
 def get_text(text: str):
-    file = open('data/texts.json', encoding='UTF-8')
-    content = json.load(file)
-    file.close()
-    if content.get(text) is not None:
-        return content.get(text)
-    return ''
+    try:
+        if os.path.exists('data/texts.json'):
+            with open('data/texts.json', encoding='UTF-8') as file:
+                content = json.load(file)
+                if content.get(text) is not None:
+                    return content.get(text)
+        return f"[{text}]"  # Return the key if not found
+    except:
+        return f"[{text}]"
 
 
 def get_keyboard(button_names: [], columns=1):
@@ -351,18 +517,15 @@ async def ask_name(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if REGISTRATION_IS_CLOSED:
         await context.bot.send_message(chat_id=update.effective_chat.id, text=get_text('REGISTRAION_IS_STOPPED'),
                                  reply_markup=get_menu_markup())
-        update_texts()
         return ConversationHandler.END
     if find_student_local(update.effective_chat.id) is not None:
         await context.bot.send_message(chat_id=update.effective_chat.id, text=get_text('INVALID_REGISTRATION'),
                                  reply_markup=get_menu_markup())
-        update_texts()
         return ConversationHandler.END
     context.user_data.clear()
     context.user_data['id'] = update.effective_chat.id
     await context.bot.send_message(chat_id=update.effective_chat.id, text=get_text('ASK_NAME'),
                              parse_mode=ParseMode.HTML, reply_markup=ReplyKeyboardRemove())
-    update_texts()
     return ENTER_PHONE
 
 
@@ -477,7 +640,7 @@ async def button_how_come(update: Update, context: ContextTypes.DEFAULT_TYPE):
     else:
         # User clicked "next"
         await query.edit_message_text(
-            text=query.message.text + '\n\n' + get_text('SPECIFY_VISITED_ANSWER').format(context.user_data["specified_visited"]),
+            text=query.message.text + get_text('SPECIFY_VISITED_ANSWER').format(context.user_data["specified_visited"]),
             reply_markup=None
         )
         return await ask_how_come(update, context)
@@ -508,6 +671,7 @@ async def ask_religious(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def exit_conversation(update: Update, context: ContextTypes.DEFAULT_TYPE):
     context.user_data['religious'] = update.message.text
+    context.user_data['registration_time'] = str(datetime.now().strftime("%d.%m.%Y %H:%M"))
     await update.message.reply_text(get_text('END_REGISTRATION'))
     try:
         add_student(list(context.user_data.values()))
@@ -666,9 +830,14 @@ async def restart_bot(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 def main():
     print("start")
+    # Ensure data directory exists
+    os.makedirs('data', exist_ok=True)
+    
+    # Update texts and sync students
     update_texts()
-    sync_local_students()
     backup_table()
+    sync_local_students()
+    
     print('ready')
     
     application = Application.builder().token(read_config("BOT_TOKEN")).build()
@@ -687,7 +856,8 @@ def main():
         states={
             SPAM_MESSAGE: [MessageHandler(filters.TEXT & (~ filters.COMMAND), ask_spam_message_text)],
         },
-        fallbacks=[CommandHandler('cancel', cancel_conversation)]
+        fallbacks=[CommandHandler('cancel', cancel_conversation)],
+        per_message=False
     )
     
     register_conversation_handler = ConversationHandler(
@@ -705,6 +875,7 @@ def main():
             EXIT_CONVERSATION: [MessageHandler(filters.TEXT & (~ filters.COMMAND), exit_conversation)]
         },
         fallbacks=[CommandHandler('restart_registration', finish_conversation)],
+        per_message=False
     )
     
     application.add_handler(register_conversation_handler)
