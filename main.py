@@ -9,6 +9,7 @@ from pathlib import Path
 import time
 import traceback
 import pandas as pd
+import sys
 import telegram.error
 
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup, KeyboardButton, ReplyKeyboardMarkup, ParseMode, \
@@ -676,12 +677,20 @@ def open_registration(update, context):
     context.bot.send_message(chat_id=update.message.chat_id, text=get_text('REGISTRATION_OPENED'))
 
 
+def restart_bot(update, context):
+    if not is_admin(update.message.chat_id):
+        return
+    context.bot.send_message(chat_id=update.message.chat_id, text=get_text('RESTART_BOT'))
+    os.execv(sys.executable, [sys.executable] + sys.argv)
+
+
 def main():
     print("start")
     update_texts()
     sync_local_students()
     backup_table()
-    updater = Updater(read_config("TEST_BOT_TOKEN"), use_context=True)
+    print('ready')
+    updater = Updater(read_config("BOT_TOKEN"), use_context=True)
     dispatcher = updater.dispatcher
     dispatcher.add_handler(CommandHandler('start', start_command))
     dispatcher.add_handler(CommandHandler('menu', show_menu))
@@ -718,6 +727,7 @@ def main():
     dispatcher.add_handler(CommandHandler('restart_registration', finish_conversation))
     dispatcher.add_handler(CommandHandler('close_registration', close_registration))
     dispatcher.add_handler(CommandHandler('open_registration', open_registration))
+    dispatcher.add_handler(CommandHandler('restart_bot', restart_bot))
     dispatcher.add_handler(send_spam_conversation_handler)
     #dispatcher.add_handler(CallbackQueryHandler(tutor_time_register, pattern='tutor_time_register'))
     #dispatcher.add_handler(CallbackQueryHandler(record_tutor_time))
