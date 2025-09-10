@@ -12,13 +12,14 @@ import pandas as pd
 import sys
 import telegram.error
 import asyncio
+import socket
 
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup, KeyboardButton, ReplyKeyboardMarkup, \
     ReplyKeyboardRemove, Update
 from telegram.constants import ParseMode
 from telegram.ext import Application, CommandHandler, MessageHandler, filters, CallbackQueryHandler, \
     ConversationHandler, ContextTypes
-from google.auth.transport.requests import Request
+from google.auth.transport import requests as google_requests
 from google.oauth2.credentials import Credentials
 from google_auth_oauthlib.flow import InstalledAppFlow
 from googleapiclient.discovery import build
@@ -98,17 +99,36 @@ def read_config(value) -> str:
 def connect_to_spreadsheets():
     creds = None
     scopes = [read_config("SCOPES")]
+    
+    # Force IPv4 for this connection
+    socket.setdefaulttimeout(30)
+    
     if os.path.exists('token.json'):
-        creds = Credentials.from_authorized_user_file('token.json', scopes)
+        try:
+            creds = Credentials.from_authorized_user_file('token.json', scopes)
+        except Exception as e:
+            print(f"Error loading credentials: {e}")
+            os.remove('token.json')
+    
     if not creds or not creds.valid:
-        if creds and creds.expired and creds.refresh_token:
-            creds.refresh(Request())
-        else:
-            flow = InstalledAppFlow.from_client_secrets_file(
-                'credentials.json', scopes)
-            creds = flow.run_local_server(port=0)
-        with open('token.json', 'w') as token:
-            token.write(creds.to_json())
+        try:
+            if creds and creds.expired and creds.refresh_token:
+                # Create a custom request with IPv4 forcing
+                ipv4_request = google_requests.Request()
+                creds.refresh(ipv4_request)
+            else:
+                flow = InstalledAppFlow.from_client_secrets_file(
+                    'credentials.json', scopes)
+                # For the local server flow, we need to handle this differently
+                creds = flow.run_local_server(port=0, open_browser=False)
+            
+            with open('token.json', 'w') as token:
+                token.write(creds.to_json())
+                
+        except Exception as e:
+            print(f"Authentication failed: {e}")
+            raise
+    
     return creds
 
 
@@ -233,7 +253,7 @@ def remove_student(telegram_id):
 
 
 def update_texts():
-    service = build('sheets', 'v4', credentials=connect_to_spreadsheets())
+    service = build('sheets', 'v4', credentials=connect_to_spreadsheets()) 
     sheet = service.spreadsheets()
     questions = (sheet.values().get(spreadsheetId=read_config("SAMPLE_SPREADSHEET_ID"),
                                     range=read_config('TEXTS_RANGE_NAME')).execute()).get('values', [])
