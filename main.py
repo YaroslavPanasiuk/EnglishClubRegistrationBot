@@ -11,11 +11,13 @@ import traceback
 import pandas as pd
 import sys
 import telegram.error
+import asyncio
 
-from telegram import InlineKeyboardButton, InlineKeyboardMarkup, KeyboardButton, ReplyKeyboardMarkup, ParseMode, \
+from telegram import InlineKeyboardButton, InlineKeyboardMarkup, KeyboardButton, ReplyKeyboardMarkup, \
     ReplyKeyboardRemove, Update
-from telegram.ext import Updater, CommandHandler, MessageHandler, Filters, CallbackQueryHandler, ConversationHandler, \
-    ContextTypes
+from telegram.constants import ParseMode
+from telegram.ext import Application, CommandHandler, MessageHandler, filters, CallbackQueryHandler, \
+    ConversationHandler, ContextTypes
 from google.auth.transport.requests import Request
 from google.oauth2.credentials import Credentials
 from google_auth_oauthlib.flow import InstalledAppFlow
@@ -170,13 +172,6 @@ def add_student(data: []):
     df.to_csv('data/students.csv', index=False)
 
 
-#def available_tutor_times():
-#    df = get_spreadsheets_data().get('tutor_times')
-#    mask = ((df['Student'] == '') | (df['Student'].isna())) & (df['Date and time'] != '') & (
-#        df['Date and time'].notna())
-#    return list(collections.OrderedDict.fromkeys(df.loc[mask, 'Date and time']))
-
-
 def load_students_fromc_csv(filename: str) -> List[Student]:
     df = pd.read_csv('data/students.csv')
     return [Student([*row[0:12]]) for _, row in df.iterrows()]
@@ -235,38 +230,6 @@ def remove_student(telegram_id):
     service.spreadsheets().values().batchUpdate(spreadsheetId=read_config("SAMPLE_SPREADSHEET_ID"),
                                                 body=range_body_values).execute()
     df.to_csv('data/students.csv', index=False)
-
-
-#def when_student_has_tutor_time(student: Student):
-#    df = get_spreadsheets_data().get('tutor_times')
-#    mask = ((df['Student'] == student.name) & (df["Student's phone number "] == student.phone) &
-#            ((df['telegram'] == student.nickname) | ((df['telegram'].isna()) & (student.nickname == ''))))
-#    if len(df.loc[mask, "Date and time"]) == 0:
-#        return ''
-#    return str(df.loc[mask.idxmax(), "Date and time"])
-
-
-#def add_student_to_tutor_time(student: Student, tutor_time: str):
-#    try:
-#        service = build('sheets', 'v4', credentials=connect_to_spreadsheets())
-#        df = get_spreadsheets_data().get('tutor_times')
-#        mask = (df['Date and time'] == tutor_time) & (df['Student'].isna())
-#        df.loc[mask.idxmax(), ['Student', "Student's phone number ", 'telegram']] = [student.name, student.phone,
-#                                                                                     student.nickname]
-#        range_body_values = {
-#            'value_input_option': 'USER_ENTERED',
-#            'data': [
-#                {
-#                    'majorDimension': 'ROWS',
-#                    'range': 'Tutor time!E2:G60',
-#                    'values': df[['Student', "Student's phone number ", 'telegram']].values.tolist()
-#                },
-#            ]}
-#        service.spreadsheets().values().batchUpdate(spreadsheetId=read_config("SAMPLE_SPREADSHEET_ID"),
-#                                                    body=range_body_values).execute()
-#
-#    except HttpError as err:
-#        print(err)
 
 
 def update_texts():
@@ -358,168 +321,198 @@ def get_visited_text(sex):
     return get_text('ASK_VISITED_MALE')
 
 
-def start_command(update, context):
+async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     keyboard = [[KeyboardButton(get_text('REGISTRATION_BUTTON'))]]
-    context.bot.send_message(chat_id=update.message.chat_id, text=get_text('INTRODUCTION'), parse_mode=ParseMode.HTML,
+    await context.bot.send_message(chat_id=update.effective_chat.id, text=get_text('INTRODUCTION'), parse_mode=ParseMode.HTML,
                              reply_markup=ReplyKeyboardMarkup(keyboard, one_time_keyboard=True, resize_keyboard=True))
 
 
-def ask_name(update, context):
+async def ask_name(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if REGISTRATION_IS_CLOSED:
-        context.bot.send_message(chat_id=update.message.chat_id, text=get_text('REGISTRAION_IS_STOPPED'),
+        await context.bot.send_message(chat_id=update.effective_chat.id, text=get_text('REGISTRAION_IS_STOPPED'),
                                  reply_markup=get_menu_markup())
         update_texts()
         return ConversationHandler.END
-    if find_student_local(update.message.chat_id) is not None:
-        context.bot.send_message(chat_id=update.message.chat_id, text=get_text('INVALID_REGISTRATION'),
+    if find_student_local(update.effective_chat.id) is not None:
+        await context.bot.send_message(chat_id=update.effective_chat.id, text=get_text('INVALID_REGISTRATION'),
                                  reply_markup=get_menu_markup())
         update_texts()
         return ConversationHandler.END
     context.user_data.clear()
-    context.user_data['id'] = update.message.chat_id
-    context.bot.send_message(chat_id=update.message.chat_id, text=get_text('ASK_NAME'),
+    context.user_data['id'] = update.effective_chat.id
+    await context.bot.send_message(chat_id=update.effective_chat.id, text=get_text('ASK_NAME'),
                              parse_mode=ParseMode.HTML, reply_markup=ReplyKeyboardRemove())
     update_texts()
     return ENTER_PHONE
 
 
-def ask_phone(update, context):
+async def ask_phone(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if context.user_data.get('phone') is None:
         name = update.message.text.split()
         if len(name) < 2 or re.search('\\w', name[1]) is None:
-            return ask_name(update, context)
+            return await ask_name(update, context)
         name = update.message.text
         context.user_data['name'] = name
-        context.bot.send_message(chat_id=update.message.chat_id,
+        await context.bot.send_message(chat_id=update.effective_chat.id,
                                  text=get_text('RESTART_REGISTRATION_INFO').format(name.split()[0]))
-    update.message.reply_text(get_text('ASK_PHONE'))
+    await update.message.reply_text(get_text('ASK_PHONE'))
     return ENTER_SEX
 
 
-def ask_sex(update, context):
+async def ask_sex(update: Update, context: ContextTypes.DEFAULT_TYPE):
     phone = update.message.text
     context.user_data['phone'] = phone
     if not (len(phone) == 12 and phone.isdigit()):
-        return ask_phone(update, context)
+        return await ask_phone(update, context)
     context.user_data['nickname'] = update.message.from_user.username
     keyboard = get_keyboard([get_text('MALE'), get_text('FEMALE')], 2)
-    context.bot.send_message(chat_id=update.message.chat_id, text=get_text('ASK_SEX'),
+    await context.bot.send_message(chat_id=update.effective_chat.id, text=get_text('ASK_SEX'),
                              reply_markup=ReplyKeyboardMarkup(keyboard, one_time_keyboard=True, resize_keyboard=True))
     return ENTER_UNI
 
 
-def ask_uni(update, context):
+async def ask_uni(update: Update, context: ContextTypes.DEFAULT_TYPE):
     context.user_data['sex'] = update.message.text
     buttons = get_keyboard(get_text('UNIVERSITIES').split('; '))
-    context.bot.send_message(chat_id=update.message.chat_id,
+    await context.bot.send_message(chat_id=update.effective_chat.id,
                              text=get_text('ASK_UNI'),
                              reply_markup=ReplyKeyboardMarkup(buttons, one_time_keyboard=True))
     return ENTER_COURSE
 
 
-def ask_course(update, context):
+async def ask_course(update: Update, context: ContextTypes.DEFAULT_TYPE):
     context.user_data['uni'] = update.message.text
     keyboard = get_keyboard(get_text('COURSES').split('; '), 3)
-    context.bot.send_message(chat_id=update.message.chat_id, text=get_text('ASK_COURSE'),
+    await context.bot.send_message(chat_id=update.effective_chat.id, text=get_text('ASK_COURSE'),
                              reply_markup=ReplyKeyboardMarkup(keyboard, one_time_keyboard=True))
     return ENTER_VISITED
 
 
-def ask_visited(update, context):
+async def ask_visited(update: Update, context: ContextTypes.DEFAULT_TYPE):
     context.user_data['course'] = update.message.text
     keyboard = get_keyboard([get_text('YES'), get_text('NO')], 2)
-    context.bot.send_message(chat_id=update.message.chat_id, text=get_visited_text(context.user_data['sex']),
+    await context.bot.send_message(chat_id=update.effective_chat.id, text=get_visited_text(context.user_data['sex']),
                              reply_markup=ReplyKeyboardMarkup(keyboard, one_time_keyboard=True, resize_keyboard=True))
     return SPECIFY_VISITED
 
 
-def specify_visited(update, context):
+async def specify_visited(update: Update, context: ContextTypes.DEFAULT_TYPE):
     context.user_data['visited'] = update.message.text
     context.user_data['specified_visited'] = get_default_visited_text(context.user_data['sex'])
     if not (context.user_data['visited'] == get_text('YES')):
-        return ask_how_come(update, context)
+        return await ask_how_come(update, context)
     button_names = get_text('OUR_EVENTS').split("; ")
     buttons = get_inline_keyboard(button_names, range(len(button_names)), 2)
     buttons.append([InlineKeyboardButton(text=get_text('INPUT_EVENTS'), callback_data='next')])
     keyboard = InlineKeyboardMarkup(buttons)
-    context.bot.send_message(chat_id=update.message.chat_id, text=get_text('SPECIFY_VISITED'),
+    await context.bot.send_message(chat_id=update.effective_chat.id, text=get_text('SPECIFY_VISITED'),
                              reply_markup=keyboard)
     return ENTER_HOW_COME
 
 
-def button_how_come(update, context):
+async def button_how_come(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
+    await query.answer()
     answer = query.data
+    
     if answer != 'next':
+        # Get the current markup
         markup = query.message.reply_markup
         result = ''
+        
+        # Create a new keyboard with updated buttons
+        new_keyboard = []
         for row in markup.inline_keyboard:
+            new_row = []
             for button in row:
                 if button.callback_data == answer:
+                    # Toggle the checkmark for the clicked button
                     words = button.text.split()
-                    button.text = button.text[:-2] if words[-1] == '✅' else button.text + ' ✅'
-                if button.text.split()[-1] == '✅':
-                    result = result + button.text[:-2] + '; '
+                    if words[-1] == '✅':
+                        new_text = button.text[:-2]
+                    else:
+                        new_text = button.text + ' ✅'
+                    new_button = InlineKeyboardButton(text=new_text, callback_data=button.callback_data)
+                else:
+                    new_button = button
+                
+                new_row.append(new_button)
+                
+                # Check if this button has a checkmark for the result
+                button_words = new_button.text.split()
+                if button_words[-1] == '✅':
+                    result = result + new_button.text[:-2] + '; '
+            
+            new_keyboard.append(new_row)
+        
+        # Add the "next" button
+        #new_keyboard.append([InlineKeyboardButton(text=get_text('INPUT_EVENTS'), callback_data='next')])
+        
         sex = context.user_data['sex']
         context.user_data['specified_visited'] = get_default_visited_text(sex) if result == '' else result
-        query.edit_message_reply_markup(markup)
+        
+        # Update the message with the new keyboard
+        new_markup = InlineKeyboardMarkup(new_keyboard)
+        await query.edit_message_reply_markup(reply_markup=new_markup)
     else:
-        query.edit_message_text(text=query.message.text +
-                                get_text('SPECIFY_VISITED_ANSWER').format(context.user_data["specified_visited"]),
-                                reply_markup=None)
-        return ask_how_come(query, context)
+        # User clicked "next"
+        await query.edit_message_text(
+            text=query.message.text + '\n\n' + get_text('SPECIFY_VISITED_ANSWER').format(context.user_data["specified_visited"]),
+            reply_markup=None
+        )
+        return await ask_how_come(update, context)
 
 
-def ask_how_come(update, context):
+async def ask_how_come(update: Update, context: ContextTypes.DEFAULT_TYPE):
     keyboard = get_keyboard(get_text('ADVERTISEMENTS').split('; '), 2)
-    context.bot.send_message(chat_id=update.message.chat_id, text=get_ask_how_come_text(context.user_data['sex']),
+    await context.bot.send_message(chat_id=update.effective_chat.id, text=get_ask_how_come_text(context.user_data['sex']),
                              reply_markup=ReplyKeyboardMarkup(keyboard, one_time_keyboard=True, resize_keyboard=True))
     return ENTER_ENGLISH_LEVEL
 
 
-def ask_english_level(update, context):
+async def ask_english_level(update: Update, context: ContextTypes.DEFAULT_TYPE):
     context.user_data['how_come'] = update.message.text
     keyboard = get_keyboard(get_text('ENGLISH_LEVELS').split('; '))
-    context.bot.send_message(chat_id=update.message.chat_id, text=get_text('ASK_ENGLISH_LEVEL'),
+    await context.bot.send_message(chat_id=update.effective_chat.id, text=get_text('ASK_ENGLISH_LEVEL'),
                              reply_markup=ReplyKeyboardMarkup(keyboard, one_time_keyboard=True))
     return ENTER_RELIGIOUS
 
 
-def ask_religious(update, context):
+async def ask_religious(update: Update, context: ContextTypes.DEFAULT_TYPE):
     context.user_data['english_level'] = update.message.text
     keyboard = get_keyboard(get_text('ATTITUDES').split('; '))
-    context.bot.send_message(chat_id=update.message.chat_id, text=get_text('ASK_RELIGIOUS'),
+    await context.bot.send_message(chat_id=update.effective_chat.id, text=get_text('ASK_RELIGIOUS'),
                              reply_markup=ReplyKeyboardMarkup(keyboard, one_time_keyboard=True, resize_keyboard=True))
     return EXIT_CONVERSATION
 
 
-def exit_conversation(update, context):
+async def exit_conversation(update: Update, context: ContextTypes.DEFAULT_TYPE):
     context.user_data['religious'] = update.message.text
-    update.message.reply_text(get_text('END_REGISTRATION'))
+    await update.message.reply_text(get_text('END_REGISTRATION'))
     try:
         add_student(list(context.user_data.values()))
     except:
-        context.bot.send_message(chat_id=int(read_config('SUPER_ADMIN_ID')), text=traceback.format_exc())
-        context.bot.send_message(chat_id=int(read_config('SUPER_ADMIN_ID')),
+        await context.bot.send_message(chat_id=int(read_config('SUPER_ADMIN_ID')), text=traceback.format_exc())
+        await context.bot.send_message(chat_id=int(read_config('SUPER_ADMIN_ID')),
                                  text=f'failed to register. user is '
                                       f'{context.user_data.get("name")}; {context.user_data.get("nickname")}')
-        context.bot.send_message(chat_id=int(read_config('SUPER_ADMIN_ID')),
+        await context.bot.send_message(chat_id=int(read_config('SUPER_ADMIN_ID')),
                                  text=f'full user data: '
                                       f'{context.user_data.get("id")} {context.user_data.get("name")} {context.user_data.get("phone")} {context.user_data.get("nickname")} {context.user_data.get("sex")} {context.user_data.get("uni")} {context.user_data.get("course")} {context.user_data.get("visited")} {context.user_data.get("specified_visited")} {context.user_data.get("how_come")} {context.user_data.get("english_level")} {context.user_data.get("religious")}')
 
     finally:
-        show_menu(update, context)
+        await show_menu(update, context)
         return ConversationHandler.END
 
 
-def cancel_conversation(update: Update, context: ContextTypes.context):
-    context.bot.send_message(chat_id=update.message.chat_id, text='successfully canceled')
+async def cancel_conversation(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    await context.bot.send_message(chat_id=update.effective_chat.id, text='successfully canceled')
     return ConversationHandler.END
 
 
-def finish_conversation(update: Update, context: ContextTypes.context):
+async def finish_conversation(update: Update, context: ContextTypes.DEFAULT_TYPE):
     keyboard = [[KeyboardButton(get_text('REGISTRATION_BUTTON'))]]
-    context.bot.send_message(chat_id=update.effective_chat.id, text=get_text('RESTART_REGISTRATION'),
+    await context.bot.send_message(chat_id=update.effective_chat.id, text=get_text('RESTART_REGISTRATION'),
                              reply_markup=ReplyKeyboardMarkup(keyboard, one_time_keyboard=True, resize_keyboard=True))
     remove_student(update.effective_chat.id)
     return ConversationHandler.END
@@ -533,8 +526,8 @@ def is_admin(id: int):
     return False
 
 
-def spam_message(update, context):
-    if not is_admin(update.message.chat_id):
+async def spam_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not is_admin(update.effective_chat.id):
         print("not admin")
         return ConversationHandler.END
     students = get_students_to_spam_from_spreadsheets().values.tolist()
@@ -542,17 +535,17 @@ def spam_message(update, context):
     for student in students:
         receivers = receivers + f"{student[0]} - {student[1]}\n"
         if len(receivers) > 3500:
-            context.bot.send_message(chat_id=update.message.chat_id,
+            await context.bot.send_message(chat_id=update.effective_chat.id,
                                      text=get_text('MESSAGE_TO_SPAM').format(len(students), receivers))
             receivers = ''
-    context.bot.send_message(chat_id=update.message.chat_id,
+    await context.bot.send_message(chat_id=update.effective_chat.id,
                              text=get_text('MESSAGE_TO_SPAM').format(len(students), receivers))
     return SPAM_MESSAGE
 
 
-def ask_spam_message_text(update, context):
+async def ask_spam_message_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chats = get_chats()
-    current_chat_id = update.message.chat_id
+    current_chat_id = update.effective_chat.id
     message_type = "text"
     message_caption = update.message.caption
     if len(update.message.photo) > 0:
@@ -566,122 +559,88 @@ def ask_spam_message_text(update, context):
             try:
                 match message_type:
                     case "text":
-                        context.bot.send_message(chat_id=int(chat), text=update.message.text)
+                        await context.bot.send_message(chat_id=int(chat), text=update.message.text)
                     case "photo":
-                        context.bot.send_photo(chat_id=int(chat), photo=update.message.photo[-1].file_id,
+                        await context.bot.send_photo(chat_id=int(chat), photo=update.message.photo[-1].file_id,
                                                caption=message_caption)
                     case "video":
                         video_file = update.message.video.get_file()
-                        context.bot.send_video(chat_id=int(chat), video=video_file.file_id,
+                        await context.bot.send_video(chat_id=int(chat), video=video_file.file_id,
                                                caption=message_caption)
                     case _:
-                        return context.bot.send_message(chat_id=current_chat_id, text="invalid message type")
+                        return await context.bot.send_message(chat_id=current_chat_id, text="invalid message type")
                 time.sleep(1)
-                context.bot.send_message(chat_id=current_chat_id, text=f'sent to {student.name}, id = {student.id}')
+                await context.bot.send_message(chat_id=current_chat_id, text=f'sent to {student.name}, id = {student.id}')
                 time.sleep(1)
             except telegram.error.Unauthorized:
-                report_error(context.bot, current_chat_id, f'{student.name} has blocked me((')
+                await report_error(context.bot, current_chat_id, f'{student.name} has blocked me((')
             except telegram.error.BadRequest:
-                report_error(context.bot, current_chat_id, f'{student.name} has not yet contacted me')
-        context.bot.send_message(chat_id=current_chat_id, text='sentAll')
+                await report_error(context.bot, current_chat_id, f'{student.name} has not yet contacted me')
+        await context.bot.send_message(chat_id=current_chat_id, text='sentAll')
     except:
-        context.bot.send_message(chat_id=int(read_config('SUPER_ADMIN_ID')), text=traceback.format_exc())
+        await context.bot.send_message(chat_id=int(read_config('SUPER_ADMIN_ID')), text=traceback.format_exc())
         if current_chat_id != int(read_config('SUPER_ADMIN_ID')):
             time.sleep(1)
-            context.bot.send_message(chat_id=update.message.chat_id, text=traceback.format_exc())
+            await context.bot.send_message(chat_id=update.effective_chat.id, text=traceback.format_exc())
     finally:
         return ConversationHandler.END
 
 
-def report_error(bot, chat_id, msg):
-    bot.send_message(chat_id=int(read_config('SUPER_ADMIN_ID')), text=msg)
+async def report_error(bot, chat_id, msg):
+    await bot.send_message(chat_id=int(read_config('SUPER_ADMIN_ID')), text=msg)
     if chat_id != int(read_config('SUPER_ADMIN_ID')):
         time.sleep(1)
-        bot.send_message(chat_id=chat_id, text=msg)
+        await bot.send_message(chat_id=chat_id, text=msg)
 
 
-def show_menu(update, context):
-    context.bot.send_message(chat_id=update.message.chat_id, text=get_text('MENU'), reply_markup=get_menu_markup())
+async def show_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    await context.bot.send_message(chat_id=update.effective_chat.id, text=get_text('MENU'), reply_markup=get_menu_markup())
 
 
-def send_location(update, context):
-    context.bot.send_message(chat_id=update.message.chat_id, text=get_text('LOCATION'), parse_mode=ParseMode.HTML)
+async def send_location(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    await context.bot.send_message(chat_id=update.effective_chat.id, text=get_text('LOCATION'), parse_mode=ParseMode.HTML)
 
 
-def send_schedule(update, context):
-    context.bot.send_message(chat_id=update.message.chat_id, text=get_text('SCHEDULE'))
+async def send_schedule(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    await context.bot.send_message(chat_id=update.effective_chat.id, text=get_text('SCHEDULE'))
 
 
-def send_interview(update, context):
-    context.bot.send_message(chat_id=update.message.chat_id, text=get_text('INTERVIEW'))
+async def send_interview(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    await context.bot.send_message(chat_id=update.effective_chat.id, text=get_text('INTERVIEW'))
 
 
-def send_tutor_time(update, context):
-    # reply_markup = InlineKeyboardMarkup(
-    #    [[InlineKeyboardButton(get_text('TUTOR_TIME_REGISTRATION_BUTTON'), callback_data='tutor_time_register')]])
-    context.bot.send_message(chat_id=update.message.chat_id, text=get_text('TUTOR_TIME'), reply_markup=None)
+async def send_tutor_time(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    await context.bot.send_message(chat_id=update.effective_chat.id, text=get_text('TUTOR_TIME'), reply_markup=None)
 
 
-def send_about_us(update, context):
-    context.bot.send_message(chat_id=update.message.chat_id, text=get_text('ABOUT_US'), parse_mode=ParseMode.HTML)
+async def send_about_us(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    await context.bot.send_message(chat_id=update.effective_chat.id, text=get_text('ABOUT_US'), parse_mode=ParseMode.HTML)
 
 
-def send_connect(update, context):
-    context.bot.send_message(chat_id=update.message.chat_id, text=get_text('GOT_QUESTIONS'))
+async def send_connect(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    await context.bot.send_message(chat_id=update.effective_chat.id, text=get_text('GOT_QUESTIONS'))
 
 
-#def tutor_time_register(update, context):
-#    query = update.callback_query
-#    student = find_student(query.message.chat_id)
-#    if student is None:
-#        text = get_text('UNREGISTERED_TUTOR_TIME_REGISTRATION')
-#        query.answer(text)
-#        context.bot.send_message(query.message.chat_id, text=text)
-#        return
-#    if when_student_has_tutor_time(student) != '':
-#        text = f'{get_text("INVALID_TUTOR_TIME_REGISTRATION")} {when_student_has_tutor_time(student)}'
-#        query.answer(text)
-#        context.bot.send_message(query.message.chat_id, text=text)
-#        return
-#    query.answer()
-#    button_names = available_tutor_times()
-#    buttons = []
-#    for element in button_names:
-#        buttons.append([InlineKeyboardButton(text=element, callback_data=element)])
-#    reply_markup = InlineKeyboardMarkup(buttons)
-#    query.edit_message_text(query.message.text + '\n\n' + get_text('TUTOR_TIME_REGISTRATION'),
-#                            reply_markup=reply_markup)
-
-
-#def record_tutor_time(update, context):
-#    query = update.callback_query
-#    text = f'{get_text("TUTOR_TIME_REGISTERED")} {query.data}'
-#    add_student_to_tutor_time(find_student(query.message.chat_id), query.data)
-#    query.answer(text=text)
-#    query.edit_message_reply_markup(reply_markup=None)
-#    context.bot.send_message(query.message.chat_id, text=text)
-
-
-def close_registration(update, context):
-    if not is_admin(update.message.chat_id):
+async def close_registration(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not is_admin(update.effective_chat.id):
         return
     global REGISTRATION_IS_CLOSED
     REGISTRATION_IS_CLOSED = True
-    context.bot.send_message(chat_id=update.message.chat_id, text=get_text('REGISTRATION_CLOSED'))
+    await context.bot.send_message(chat_id=update.effective_chat.id, text=get_text('REGISTRATION_CLOSED'))
 
 
-def open_registration(update, context):
-    if not is_admin(update.message.chat_id):
+async def open_registration(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not is_admin(update.effective_chat.id):
         return
     global REGISTRATION_IS_CLOSED
     REGISTRATION_IS_CLOSED = False
-    context.bot.send_message(chat_id=update.message.chat_id, text=get_text('REGISTRATION_OPENED'))
+    await context.bot.send_message(chat_id=update.effective_chat.id, text=get_text('REGISTRATION_OPENED'))
 
 
-def restart_bot(update, context):
-    if not is_admin(update.message.chat_id):
+async def restart_bot(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not is_admin(update.effective_chat.id):
         return
-    context.bot.send_message(chat_id=update.message.chat_id, text=get_text('RESTART_BOT'))
+    await context.bot.send_message(chat_id=update.effective_chat.id, text=get_text('RESTART_BOT'))
     os.execv(sys.executable, [sys.executable] + sys.argv)
 
 
@@ -691,50 +650,51 @@ def main():
     sync_local_students()
     backup_table()
     print('ready')
-    updater = Updater(read_config("BOT_TOKEN"), use_context=True)
-    dispatcher = updater.dispatcher
-    dispatcher.add_handler(CommandHandler('start', start_command))
-    dispatcher.add_handler(CommandHandler('menu', show_menu))
-    dispatcher.add_handler(MessageHandler(Filters.regex(f"^{get_text('LOCATION_BUTTON')}$"), send_location))
-    dispatcher.add_handler(MessageHandler(Filters.regex(f"^{get_text('SCHEDULE_BUTTON')}$"), send_schedule))
-    dispatcher.add_handler(MessageHandler(Filters.regex(f"^{get_text('INTERVIEW_BUTTON')}$"), send_interview))
-    dispatcher.add_handler(MessageHandler(Filters.regex(f"^{get_text('TUTOR_TIME_BUTTON')}$"), send_tutor_time))
-    dispatcher.add_handler(MessageHandler(Filters.regex(f"^{get_text('ABOUT_US_BUTTON')}$"), send_about_us))
-    dispatcher.add_handler(MessageHandler(Filters.regex(f"^{get_text('GOT_QUESTIONS_BUTTON')}$"), send_connect))
+    
+    application = Application.builder().token(read_config("BOT_TOKEN")).build()
+    
+    application.add_handler(CommandHandler('start', start_command))
+    application.add_handler(CommandHandler('menu', show_menu))
+    application.add_handler(MessageHandler(filters.Regex(f"^{get_text('LOCATION_BUTTON')}$"), send_location))
+    application.add_handler(MessageHandler(filters.Regex(f"^{get_text('SCHEDULE_BUTTON')}$"), send_schedule))
+    application.add_handler(MessageHandler(filters.Regex(f"^{get_text('INTERVIEW_BUTTON')}$"), send_interview))
+    application.add_handler(MessageHandler(filters.Regex(f"^{get_text('TUTOR_TIME_BUTTON')}$"), send_tutor_time))
+    application.add_handler(MessageHandler(filters.Regex(f"^{get_text('ABOUT_US_BUTTON')}$"), send_about_us))
+    application.add_handler(MessageHandler(filters.Regex(f"^{get_text('GOT_QUESTIONS_BUTTON')}$"), send_connect))
+    
     send_spam_conversation_handler = ConversationHandler(
-        entry_points=[CommandHandler('spam_message', cancel_conversation)],
+        entry_points=[CommandHandler('spam_message', spam_message)],
         states={
-            SPAM_MESSAGE: [MessageHandler(~ Filters.command, ask_spam_message_text)],
+            SPAM_MESSAGE: [MessageHandler(filters.TEXT & (~ filters.COMMAND), ask_spam_message_text)],
         },
         fallbacks=[CommandHandler('cancel', cancel_conversation)]
     )
+    
     register_conversation_handler = ConversationHandler(
-        entry_points=[MessageHandler(Filters.text(get_text('REGISTRATION_BUTTON')), ask_name)],
+        entry_points=[MessageHandler(filters.Regex(f"^{get_text('REGISTRATION_BUTTON')}$"), ask_name)],
         states={
-            ENTER_PHONE: [MessageHandler(Filters.text & (~ Filters.command), ask_phone)],
-            ENTER_SEX: [MessageHandler(Filters.text & (~ Filters.command), ask_sex)],
-            ENTER_UNI: [MessageHandler(Filters.text & (~ Filters.command), ask_uni)],
-            ENTER_COURSE: [MessageHandler(Filters.text & (~ Filters.command), ask_course)],
-            ENTER_VISITED: [MessageHandler(Filters.text & (~ Filters.command), ask_visited)],
-            SPECIFY_VISITED: [MessageHandler(Filters.text & (~ Filters.command), specify_visited)],
+            ENTER_PHONE: [MessageHandler(filters.TEXT & (~ filters.COMMAND), ask_phone)],
+            ENTER_SEX: [MessageHandler(filters.TEXT & (~ filters.COMMAND), ask_sex)],
+            ENTER_UNI: [MessageHandler(filters.TEXT & (~ filters.COMMAND), ask_uni)],
+            ENTER_COURSE: [MessageHandler(filters.TEXT & (~ filters.COMMAND), ask_course)],
+            ENTER_VISITED: [MessageHandler(filters.TEXT & (~ filters.COMMAND), ask_visited)],
+            SPECIFY_VISITED: [MessageHandler(filters.TEXT & (~ filters.COMMAND), specify_visited)],
             ENTER_HOW_COME: [CallbackQueryHandler(button_how_come, pattern='next|\\d')],
-            ENTER_ENGLISH_LEVEL: [MessageHandler(Filters.text & (~ Filters.command), ask_english_level)],
-            ENTER_RELIGIOUS: [MessageHandler(Filters.text & (~ Filters.command), ask_religious)],
-            EXIT_CONVERSATION: [MessageHandler(Filters.text & (~ Filters.command), exit_conversation)]
+            ENTER_ENGLISH_LEVEL: [MessageHandler(filters.TEXT & (~ filters.COMMAND), ask_english_level)],
+            ENTER_RELIGIOUS: [MessageHandler(filters.TEXT & (~ filters.COMMAND), ask_religious)],
+            EXIT_CONVERSATION: [MessageHandler(filters.TEXT & (~ filters.COMMAND), exit_conversation)]
         },
-        fallbacks=[CommandHandler('restart_registration', finish_conversation)]
+        fallbacks=[CommandHandler('restart_registration', finish_conversation)],
     )
-    dispatcher.add_handler(register_conversation_handler)
-    dispatcher.add_handler(CommandHandler('restart_registration', finish_conversation))
-    dispatcher.add_handler(CommandHandler('close_registration', close_registration))
-    dispatcher.add_handler(CommandHandler('open_registration', open_registration))
-    dispatcher.add_handler(CommandHandler('restart_bot', restart_bot))
-    dispatcher.add_handler(send_spam_conversation_handler)
-    #dispatcher.add_handler(CallbackQueryHandler(tutor_time_register, pattern='tutor_time_register'))
-    #dispatcher.add_handler(CallbackQueryHandler(record_tutor_time))
-    updater.start_polling()
-    updater.idle()
-
+    
+    application.add_handler(register_conversation_handler)
+    application.add_handler(CommandHandler('restart_registration', finish_conversation))
+    application.add_handler(CommandHandler('close_registration', close_registration))
+    application.add_handler(CommandHandler('open_registration', open_registration))
+    application.add_handler(CommandHandler('restart_bot', restart_bot))
+    application.add_handler(send_spam_conversation_handler)
+    
+    application.run_polling()
 
 if __name__ == '__main__':
     main()

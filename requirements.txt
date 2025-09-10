@@ -1,7 +1,7 @@
-google-api-python-client==2.58.0
-google-auth-oauthlib==0.5.2
-python-telegram-bot==13.13
-google-api-core==2.10.0
-googleapis-common-protos==1.56.4
+google-api-python-client==2.130.0
+google-auth-oauthlib==1.2.0
+python-telegram-bot==20.7
+google-api-core==2.15.0
+googleapis-common-protos==1.63.0
 pandas==2.2.2
-urllib3==1.26.19
+urllib3==2.2.1
