@@ -219,8 +219,10 @@ def backup_table():
 
 def remove_student(telegram_id):
     df = get_students_from_spreadsheets()
-    data = df.loc[df['id'] != str(telegram_id)].values.tolist()
+    df = df.loc[df['id'] != str(telegram_id)]
+    data = df.values.tolist()
     data.append(['']*12)
+
     range_body_values = {
         'value_input_option': 'USER_ENTERED',
         'data': [
