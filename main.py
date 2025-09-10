@@ -3,8 +3,10 @@ from __future__ import print_function
 import collections
 import json
 import os
+import sys
 import os.path
 import re
+from pathlib import Path
 import time
 import traceback
 import pandas as pd
@@ -19,9 +21,11 @@ from google.oauth2.credentials import Credentials
 from google_auth_oauthlib.flow import InstalledAppFlow
 from googleapiclient.discovery import build
 from googleapiclient.errors import HttpError
+from typing import List, Dict, Any
 
 (ENTER_NAME, ENTER_PHONE, ENTER_SEX, ENTER_UNI, ENTER_COURSE, ENTER_VISITED, SPECIFY_VISITED, ENTER_HOW_COME,
- ENTER_ENGLISH_LEVEL, ENTER_RELIGIOUS, EXIT_CONVERSATION) = range(11)
+ ENTER_ENGLISH_LEVEL, ENTER_RELIGIOUS, EXIT_CONVERSATION, SPAM_MESSAGE) = range(12)
+REGISTRATION_IS_CLOSED = False
 
 
 class Student:
@@ -40,6 +44,39 @@ class Student:
         self.how_come = values[9]
         self.english_level = values[10]
         self.religious = values[11]
+
+    def to_dict(self) -> Dict[str, Any]:
+        return {
+            'id': self.id,
+            'name': self.name,
+            'phone': self.phone,
+            'nickname': self.nickname,
+            'sex': self.sex,
+            'uni': self.uni,
+            'course': self.course,
+            'visited': self.visited,
+            'specified_visited': self.specified_visited,
+            'how_come': self.how_come,
+            'english_level': self.english_level,
+            'religious': self.religious
+        }
+    
+    @classmethod
+    def from_dict(cls, data: Dict[str, Any]) -> 'Student':
+        return cls([
+            data["id"],
+            data["name"],
+            data["phone"],
+            data["nickname"],
+            data["sex"],
+            data["uni"],
+            data["course"],
+            data["visited"],
+            data["specified_visited"],
+            data["how_come"],
+            data["english_level"],
+            data["religious"]
+        ])
 
 
 def read_config(value) -> str:
@@ -73,32 +110,40 @@ def connect_to_spreadsheets():
     return creds
 
 
-def get_spreadsheets_data():
+def get_students_from_spreadsheets(service=None):
     try:
-        service = build('sheets', 'v4', credentials=connect_to_spreadsheets())
+        if service is None:
+            service = build('sheets', 'v4', credentials=connect_to_spreadsheets())
         sheet = service.spreadsheets()
         registered_users = sheet.values().get(spreadsheetId=read_config("SAMPLE_SPREADSHEET_ID"),
                                               range=read_config('REGISTRATION_RANGE_NAME')).execute().get('values', [])
-        #tutor_times = sheet.values().get(spreadsheetId=read_config("SAMPLE_SPREADSHEET_ID"),
-        #                                 range=read_config('TUTOR_TIME_RANGE_NAME')).execute().get('values', [])
-        users_to_spam = sheet.values().get(spreadsheetId=read_config("SAMPLE_SPREADSHEET_ID"),
-                                           range=read_config('SPAM_RANGE_NAME')).execute().get('values', [])
         if not registered_users:
             print('No users found.')
-            return
-        #if not tutor_times:
-        #    print('No tutor_times found.')
-        #    return
-        users_df = pd.DataFrame(registered_users)
-        users_df.columns = users_df.iloc[0]
-        users_df = users_df[1:]
-        #tutor_times_df = pd.DataFrame(tutor_times)
-        #tutor_times_df.columns = tutor_times_df.iloc[0]
-        #tutor_times_df = tutor_times_df[1:]
-        users_to_spam_df = pd.DataFrame(users_to_spam)
-        users_to_spam_df.columns = users_to_spam_df.iloc[0]
-        users_to_spam_df = users_to_spam_df[1:]
-        return {'registered_users': users_df, 'users_to_spam': users_to_spam_df}
+            users_df = pd.DataFrame([])
+        else:
+            users_df = pd.DataFrame(registered_users)
+            users_df.columns = users_df.iloc[0]
+            users_df = users_df[1:]
+        return users_df
+
+    except HttpError as err:
+        print(err)
+
+
+def get_students_to_spam_from_spreadsheets():
+    try:
+        service = build('sheets', 'v4', credentials=connect_to_spreadsheets())
+        sheet = service.spreadsheets()
+        users_to_spam = sheet.values().get(spreadsheetId=read_config("SAMPLE_SPREADSHEET_ID"),
+                                           range=read_config('SPAM_RANGE_NAME')).execute().get('values', [])
+        if not users_to_spam:
+            print('No users found.')
+            users_to_spam_df = pd.DataFrame([])
+        else:
+            users_to_spam_df = pd.DataFrame(users_to_spam)
+            users_to_spam_df.columns = users_to_spam_df.iloc[0]
+            users_to_spam_df = users_to_spam_df[1:]
+        return users_to_spam_df
 
     except HttpError as err:
         print(err)
@@ -106,9 +151,8 @@ def get_spreadsheets_data():
 
 def add_student(data: []):
     service = build('sheets', 'v4', credentials=connect_to_spreadsheets())
-    students = service.spreadsheets().values().get(spreadsheetId=read_config("SAMPLE_SPREADSHEET_ID"),
-                                                   range=read_config("REGISTRATION_RANGE_NAME")).execute()
-    data_range = 'A{0}:L{0}'.format(str(len(students.get('values', [])) + 1))
+    df = get_students_from_spreadsheets(service)
+    data_range = 'A{0}:L{0}'.format(str(len(df) + 2))
     range_body_values = {
         'value_input_option': 'USER_ENTERED',
         'data': [
@@ -120,25 +164,45 @@ def add_student(data: []):
         ]}
     service.spreadsheets().values().batchUpdate(spreadsheetId=read_config("SAMPLE_SPREADSHEET_ID"),
                                                 body=range_body_values).execute()
+    
+    new_row = pd.DataFrame([data], columns=df.columns)
+    df = pd.concat([df, new_row], axis=0)
+    df.to_csv('data/students.csv', index=False)
 
 
-def available_tutor_times():
-    df = get_spreadsheets_data().get('tutor_times')
-    mask = ((df['Student'] == '') | (df['Student'].isna())) & (df['Date and time'] != '') & (
-        df['Date and time'].notna())
-    return list(collections.OrderedDict.fromkeys(df.loc[mask, 'Date and time']))
+#def available_tutor_times():
+#    df = get_spreadsheets_data().get('tutor_times')
+#    mask = ((df['Student'] == '') | (df['Student'].isna())) & (df['Date and time'] != '') & (
+#        df['Date and time'].notna())
+#    return list(collections.OrderedDict.fromkeys(df.loc[mask, 'Date and time']))
+
+
+def load_students_fromc_csv(filename: str) -> List[Student]:
+    df = pd.read_csv('data/students.csv')
+    return [Student([*row[0:12]]) for _, row in df.iterrows()]
 
 
 def find_student(telegram_id: int):
-    data = get_spreadsheets_data()
-    df = pd.concat([data.get('registered_users'), data.get('users_to_spam')], ignore_index=True)
-    if not df.loc[df['id'] == str(telegram_id)].values.flatten().tolist():
+    df = get_students_from_spreadsheets()
+    if not df.loc[df['id'] == telegram_id].values.flatten().tolist():
         return None
-    return Student(df.loc[df['id'] == str(telegram_id)].values.flatten().tolist())
+    return Student(df.loc[df['id'] == telegram_id].values.flatten().tolist())
+
+
+def sync_local_students():
+    df = get_students_from_spreadsheets()
+    df.to_csv('data/students.csv', index=False)
+    
+
+def find_student_local(telegram_id: int):
+    df = pd.read_csv('data/students.csv')
+    if not df.loc[df['id'] == telegram_id].values.flatten().tolist():
+        return None
+    return Student(df.loc[df['id'] == telegram_id].values.flatten().tolist())
 
 
 def backup_table():
-    data = get_spreadsheets_data().get('registered_users').values.tolist()
+    data = get_students_from_spreadsheets().values.tolist()
     range_body_values = {
         'value_input_option': 'USER_ENTERED',
         'data': [
@@ -154,9 +218,11 @@ def backup_table():
 
 
 def remove_student(telegram_id):
-    df = get_spreadsheets_data().get('registered_users')
-    data = df.loc[df['id'] != str(telegram_id)].values.tolist()
+    df = get_students_from_spreadsheets()
+    df = df.loc[df['id'] != str(telegram_id)]
+    data = df.values.tolist()
     data.append(['']*12)
+
     range_body_values = {
         'value_input_option': 'USER_ENTERED',
         'data': [
@@ -169,38 +235,39 @@ def remove_student(telegram_id):
     service = build('sheets', 'v4', credentials=connect_to_spreadsheets())
     service.spreadsheets().values().batchUpdate(spreadsheetId=read_config("SAMPLE_SPREADSHEET_ID"),
                                                 body=range_body_values).execute()
+    df.to_csv('data/students.csv', index=False)
 
 
-def when_student_has_tutor_time(student: Student):
-    df = get_spreadsheets_data().get('tutor_times')
-    mask = ((df['Student'] == student.name) & (df["Student's phone number "] == student.phone) &
-            ((df['telegram'] == student.nickname) | ((df['telegram'].isna()) & (student.nickname == ''))))
-    if len(df.loc[mask, "Date and time"]) == 0:
-        return ''
-    return str(df.loc[mask.idxmax(), "Date and time"])
+#def when_student_has_tutor_time(student: Student):
+#    df = get_spreadsheets_data().get('tutor_times')
+#    mask = ((df['Student'] == student.name) & (df["Student's phone number "] == student.phone) &
+#            ((df['telegram'] == student.nickname) | ((df['telegram'].isna()) & (student.nickname == ''))))
+#    if len(df.loc[mask, "Date and time"]) == 0:
+#        return ''
+#    return str(df.loc[mask.idxmax(), "Date and time"])
 
 
-def add_student_to_tutor_time(student: Student, tutor_time: str):
-    try:
-        service = build('sheets', 'v4', credentials=connect_to_spreadsheets())
-        df = get_spreadsheets_data().get('tutor_times')
-        mask = (df['Date and time'] == tutor_time) & (df['Student'].isna())
-        df.loc[mask.idxmax(), ['Student', "Student's phone number ", 'telegram']] = [student.name, student.phone,
-                                                                                     student.nickname]
-        range_body_values = {
-            'value_input_option': 'USER_ENTERED',
-            'data': [
-                {
-                    'majorDimension': 'ROWS',
-                    'range': 'Tutor time!E2:G60',
-                    'values': df[['Student', "Student's phone number ", 'telegram']].values.tolist()
-                },
-            ]}
-        service.spreadsheets().values().batchUpdate(spreadsheetId=read_config("SAMPLE_SPREADSHEET_ID"),
-                                                    body=range_body_values).execute()
-
-    except HttpError as err:
-        print(err)
+#def add_student_to_tutor_time(student: Student, tutor_time: str):
+#    try:
+#        service = build('sheets', 'v4', credentials=connect_to_spreadsheets())
+#        df = get_spreadsheets_data().get('tutor_times')
+#        mask = (df['Date and time'] == tutor_time) & (df['Student'].isna())
+#        df.loc[mask.idxmax(), ['Student', "Student's phone number ", 'telegram']] = [student.name, student.phone,
+#                                                                                     student.nickname]
+#        range_body_values = {
+#            'value_input_option': 'USER_ENTERED',
+#            'data': [
+#                {
+#                    'majorDimension': 'ROWS',
+#                    'range': 'Tutor time!E2:G60',
+#                    'values': df[['Student', "Student's phone number ", 'telegram']].values.tolist()
+#                },
+#            ]}
+#        service.spreadsheets().values().batchUpdate(spreadsheetId=read_config("SAMPLE_SPREADSHEET_ID"),
+#                                                    body=range_body_values).execute()
+#
+#    except HttpError as err:
+#        print(err)
 
 
 def update_texts():
@@ -208,7 +275,7 @@ def update_texts():
     sheet = service.spreadsheets()
     questions = (sheet.values().get(spreadsheetId=read_config("SAMPLE_SPREADSHEET_ID"),
                                     range=read_config('TEXTS_RANGE_NAME')).execute()).get('values', [])
-    file = open("texts.json", "w", encoding='UTF-8')
+    file = open("data/texts.json", "w", encoding='UTF-8')
     data = pd.DataFrame(questions).values
     dictionary = {}
     for row in data:
@@ -227,7 +294,7 @@ def get_menu_markup():
 
 
 def get_text(text: str):
-    file = open('texts.json', encoding='UTF-8')
+    file = open('data/texts.json', encoding='UTF-8')
     content = json.load(file)
     file.close()
     if content.get(text) is not None:
@@ -270,7 +337,7 @@ def get_inline_keyboard(button_names: [], callbacks: [], columns=1):
 
 
 def get_chats():
-    df = get_spreadsheets_data().get('users_to_spam')
+    df = get_students_to_spam_from_spreadsheets()
     return df.loc[(df['id'] != '') & (df['id'].notna()), 'id'].values
 
 
@@ -299,7 +366,12 @@ def start_command(update, context):
 
 
 def ask_name(update, context):
-    if find_student(update.message.chat_id) is not None:
+    if REGISTRATION_IS_CLOSED:
+        context.bot.send_message(chat_id=update.message.chat_id, text=get_text('REGISTRAION_IS_STOPPED'),
+                                 reply_markup=get_menu_markup())
+        update_texts()
+        return ConversationHandler.END
+    if find_student_local(update.message.chat_id) is not None:
         context.bot.send_message(chat_id=update.message.chat_id, text=get_text('INVALID_REGISTRATION'),
                                  reply_markup=get_menu_markup())
         update_texts()
@@ -428,10 +500,14 @@ def exit_conversation(update, context):
     try:
         add_student(list(context.user_data.values()))
     except:
-        context.bot.send_message(chat_id=int(read_config('ADMIN_ID')), text=traceback.format_exc())
-        context.bot.send_message(chat_id=int(read_config('ADMIN_ID')),
+        context.bot.send_message(chat_id=int(read_config('SUPER_ADMIN_ID')), text=traceback.format_exc())
+        context.bot.send_message(chat_id=int(read_config('SUPER_ADMIN_ID')),
                                  text=f'failed to register. user is '
                                       f'{context.user_data.get("name")}; {context.user_data.get("nickname")}')
+        context.bot.send_message(chat_id=int(read_config('SUPER_ADMIN_ID')),
+                                 text=f'full user data: '
+                                      f'{context.user_data.get("id")} {context.user_data.get("name")} {context.user_data.get("phone")} {context.user_data.get("nickname")} {context.user_data.get("sex")} {context.user_data.get("uni")} {context.user_data.get("course")} {context.user_data.get("visited")} {context.user_data.get("specified_visited")} {context.user_data.get("how_come")} {context.user_data.get("english_level")} {context.user_data.get("religious")}')
+
     finally:
         show_menu(update, context)
         return ConversationHandler.END
@@ -450,11 +526,19 @@ def finish_conversation(update: Update, context: ContextTypes.context):
     return ConversationHandler.END
 
 
+def is_admin(id: int):
+    admins = read_config("ADMIN_IDS").split(" ")
+    for i in range(len(admins)):
+        if int(admins[i]) == id:
+            return True
+    return False
+
+
 def spam_message(update, context):
-    if update.message.chat_id != int(read_config('ADMIN_ID')) and update.message.chat_id != int(
-            read_config('ADMIN_ID_3')) and update.message.chat_id != int(read_config('ADMIN_ID_2')):
+    if not is_admin(update.message.chat_id):
+        print("not admin")
         return ConversationHandler.END
-    students = get_spreadsheets_data().get('users_to_spam').values.tolist()
+    students = get_students_to_spam_from_spreadsheets().values.tolist()
     receivers = ''
     for student in students:
         receivers = receivers + f"{student[0]} - {student[1]}\n"
@@ -464,17 +548,35 @@ def spam_message(update, context):
             receivers = ''
     context.bot.send_message(chat_id=update.message.chat_id,
                              text=get_text('MESSAGE_TO_SPAM').format(len(students), receivers))
-    return 0
+    return SPAM_MESSAGE
 
 
 def ask_spam_message_text(update, context):
     chats = get_chats()
     current_chat_id = update.message.chat_id
+    message_type = "text"
+    message_caption = update.message.caption
+    if len(update.message.photo) > 0:
+        message_type = "photo"
+    if update.message.video:
+        print(update.message.video.get_file().file_id)
+        message_type = "video"
     try:
         for chat in chats:
             student = find_student(chat)
             try:
-                context.bot.send_message(chat_id=int(chat), text=update.message.text)
+                match message_type:
+                    case "text":
+                        context.bot.send_message(chat_id=int(chat), text=update.message.text)
+                    case "photo":
+                        context.bot.send_photo(chat_id=int(chat), photo=update.message.photo[-1].file_id,
+                                               caption=message_caption)
+                    case "video":
+                        video_file = update.message.video.get_file()
+                        context.bot.send_video(chat_id=int(chat), video=video_file.file_id,
+                                               caption=message_caption)
+                    case _:
+                        return context.bot.send_message(chat_id=current_chat_id, text="invalid message type")
                 time.sleep(1)
                 context.bot.send_message(chat_id=current_chat_id, text=f'sent to {student.name}, id = {student.id}')
                 time.sleep(1)
@@ -484,8 +586,8 @@ def ask_spam_message_text(update, context):
                 report_error(context.bot, current_chat_id, f'{student.name} has not yet contacted me')
         context.bot.send_message(chat_id=current_chat_id, text='sentAll')
     except:
-        context.bot.send_message(chat_id=int(read_config('ADMIN_ID')), text=traceback.format_exc())
-        if current_chat_id != int(read_config('ADMIN_ID')):
+        context.bot.send_message(chat_id=int(read_config('SUPER_ADMIN_ID')), text=traceback.format_exc())
+        if current_chat_id != int(read_config('SUPER_ADMIN_ID')):
             time.sleep(1)
             context.bot.send_message(chat_id=update.message.chat_id, text=traceback.format_exc())
     finally:
@@ -493,8 +595,8 @@ def ask_spam_message_text(update, context):
 
 
 def report_error(bot, chat_id, msg):
-    bot.send_message(chat_id=int(read_config('ADMIN_ID')), text=msg)
-    if chat_id != int(read_config('ADMIN_ID')):
+    bot.send_message(chat_id=int(read_config('SUPER_ADMIN_ID')), text=msg)
+    if chat_id != int(read_config('SUPER_ADMIN_ID')):
         time.sleep(1)
         bot.send_message(chat_id=chat_id, text=msg)
 
@@ -529,42 +631,67 @@ def send_connect(update, context):
     context.bot.send_message(chat_id=update.message.chat_id, text=get_text('GOT_QUESTIONS'))
 
 
-def tutor_time_register(update, context):
-    query = update.callback_query
-    student = find_student(query.message.chat_id)
-    if student is None:
-        text = get_text('UNREGISTERED_TUTOR_TIME_REGISTRATION')
-        query.answer(text)
-        context.bot.send_message(query.message.chat_id, text=text)
-        return
-    if when_student_has_tutor_time(student) != '':
-        text = f'{get_text("INVALID_TUTOR_TIME_REGISTRATION")} {when_student_has_tutor_time(student)}'
-        query.answer(text)
-        context.bot.send_message(query.message.chat_id, text=text)
-        return
-    query.answer()
-    button_names = available_tutor_times()
-    buttons = []
-    for element in button_names:
-        buttons.append([InlineKeyboardButton(text=element, callback_data=element)])
-    reply_markup = InlineKeyboardMarkup(buttons)
-    query.edit_message_text(query.message.text + '\n\n' + get_text('TUTOR_TIME_REGISTRATION'),
-                            reply_markup=reply_markup)
+#def tutor_time_register(update, context):
+#    query = update.callback_query
+#    student = find_student(query.message.chat_id)
+#    if student is None:
+#        text = get_text('UNREGISTERED_TUTOR_TIME_REGISTRATION')
+#        query.answer(text)
+#        context.bot.send_message(query.message.chat_id, text=text)
+#        return
+#    if when_student_has_tutor_time(student) != '':
+#        text = f'{get_text("INVALID_TUTOR_TIME_REGISTRATION")} {when_student_has_tutor_time(student)}'
+#        query.answer(text)
+#        context.bot.send_message(query.message.chat_id, text=text)
+#        return
+#    query.answer()
+#    button_names = available_tutor_times()
+#    buttons = []
+#    for element in button_names:
+#        buttons.append([InlineKeyboardButton(text=element, callback_data=element)])
+#    reply_markup = InlineKeyboardMarkup(buttons)
+#    query.edit_message_text(query.message.text + '\n\n' + get_text('TUTOR_TIME_REGISTRATION'),
+#                            reply_markup=reply_markup)
 
 
-def record_tutor_time(update, context):
-    query = update.callback_query
-    text = f'{get_text("TUTOR_TIME_REGISTERED")} {query.data}'
-    add_student_to_tutor_time(find_student(query.message.chat_id), query.data)
-    query.answer(text=text)
-    query.edit_message_reply_markup(reply_markup=None)
-    context.bot.send_message(query.message.chat_id, text=text)
+#def record_tutor_time(update, context):
+#    query = update.callback_query
+#    text = f'{get_text("TUTOR_TIME_REGISTERED")} {query.data}'
+#    add_student_to_tutor_time(find_student(query.message.chat_id), query.data)
+#    query.answer(text=text)
+#    query.edit_message_reply_markup(reply_markup=None)
+#    context.bot.send_message(query.message.chat_id, text=text)
+
+
+def close_registration(update, context):
+    if not is_admin(update.message.chat_id):
+        return
+    global REGISTRATION_IS_CLOSED
+    REGISTRATION_IS_CLOSED = True
+    context.bot.send_message(chat_id=update.message.chat_id, text=get_text('REGISTRATION_CLOSED'))
+
+
+def open_registration(update, context):
+    if not is_admin(update.message.chat_id):
+        return
+    global REGISTRATION_IS_CLOSED
+    REGISTRATION_IS_CLOSED = False
+    context.bot.send_message(chat_id=update.message.chat_id, text=get_text('REGISTRATION_OPENED'))
+
+
+def restart_bot(update, context):
+    if not is_admin(update.message.chat_id):
+        return
+    context.bot.send_message(chat_id=update.message.chat_id, text=get_text('RESTART_BOT'))
+    os.execv(sys.executable, ['python'] + sys.argv)
 
 
 def main():
     print("start")
     update_texts()
+    sync_local_students()
     backup_table()
+    print('ready\n')
     updater = Updater(read_config("BOT_TOKEN"), use_context=True)
     dispatcher = updater.dispatcher
     dispatcher.add_handler(CommandHandler('start', start_command))
@@ -578,7 +705,7 @@ def main():
     send_spam_conversation_handler = ConversationHandler(
         entry_points=[MessageHandler(Filters.text('spam_message'), spam_message)],
         states={
-            0: [MessageHandler(Filters.text & (~ Filters.command), ask_spam_message_text)],
+            SPAM_MESSAGE: [MessageHandler(~ Filters.command, ask_spam_message_text)],
         },
         fallbacks=[CommandHandler('cancel', cancel_conversation)]
     )
@@ -600,9 +727,12 @@ def main():
     )
     dispatcher.add_handler(register_conversation_handler)
     dispatcher.add_handler(CommandHandler('restart_registration', finish_conversation))
+    dispatcher.add_handler(CommandHandler('close_registration', close_registration))
+    dispatcher.add_handler(CommandHandler('open_registration', open_registration))
+    dispatcher.add_handler(CommandHandler('restart_bot', restart_bot))
     dispatcher.add_handler(send_spam_conversation_handler)
-    dispatcher.add_handler(CallbackQueryHandler(tutor_time_register, pattern='tutor_time_register'))
-    dispatcher.add_handler(CallbackQueryHandler(record_tutor_time))
+    #dispatcher.add_handler(CallbackQueryHandler(tutor_time_register, pattern='tutor_time_register'))
+    #dispatcher.add_handler(CallbackQueryHandler(record_tutor_time))
     updater.start_polling()
     updater.idle()
 
