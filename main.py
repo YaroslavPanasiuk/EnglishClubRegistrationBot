@@ -1,6 +1,6 @@
 from __future__ import print_function
 
-from datetime import datetime
+from datetime import datetime, time as dtime
 import json
 import os
 import os.path
@@ -11,6 +11,7 @@ import traceback
 import pandas as pd
 import sys
 import telegram.error
+import pytz
 import socket
 import requests
 from urllib.parse import quote
@@ -19,7 +20,7 @@ from telegram import InlineKeyboardButton, InlineKeyboardMarkup, KeyboardButton,
     ReplyKeyboardRemove, Update
 from telegram.constants import ParseMode
 from telegram.ext import Application, CommandHandler, MessageHandler, filters, CallbackQueryHandler, \
-    ConversationHandler, ContextTypes
+    ConversationHandler, ContextTypes, JobQueue
 from google.auth.transport.requests import Request
 from google.oauth2.credentials import Credentials
 from google_auth_oauthlib.flow import InstalledAppFlow
@@ -828,6 +829,36 @@ async def restart_bot(update: Update, context: ContextTypes.DEFAULT_TYPE):
     os.execv(sys.executable, [sys.executable] + sys.argv)
 
 
+async def send_daily_reminder(context: ContextTypes.DEFAULT_TYPE):
+    message = "🌞 Good morning! Bot is running normally!"
+    await context.bot.send_message(chat_id=int(read_config("SUPER_ADMIN_ID")), text=message,parse_mode=ParseMode.HTML)
+
+
+async def list_scheduled_jobs(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not is_admin(update.effective_chat.id):
+        await update.message.reply_text("Only admins can use this command.")
+        return
+    
+    job_queue = context.application.job_queue
+    if job_queue and job_queue.jobs():
+        message = "📋 Scheduled Jobs:\n"
+        for i, job in enumerate(job_queue.jobs()):
+            message += f"{i+1}. {job.name} - Next run: {job.next_t}\n"
+        await update.message.reply_text(message)
+    else:
+        await update.message.reply_text("No scheduled jobs running.")
+
+
+def get_utc_time(hour: int, minute: int, timezone_str: str = "Europe/Kiev"):
+    """Convert local time to UTC"""
+    local_tz = pytz.timezone(timezone_str)
+    local_time = dtime(hour, minute)
+    naive_dt = datetime.combine(datetime.now(), local_time)
+    local_dt = local_tz.localize(naive_dt)
+    utc_time = local_dt.astimezone(pytz.UTC).time()
+    return utc_time
+
+
 def main():
     print("start")
     # Ensure data directory exists
@@ -841,6 +872,14 @@ def main():
     print('ready')
     
     application = Application.builder().token(read_config("BOT_TOKEN")).build()
+
+    job_queue = application.job_queue
+
+    if job_queue:
+        job_queue.run_daily(send_daily_reminder, time=get_utc_time(9, 0), days=tuple(range(7)))
+        job_queue.run_daily(send_daily_reminder, time=get_utc_time(21, 0), days=tuple(range(7)))
+
+        print("Scheduled messages initialized")
     
     application.add_handler(CommandHandler('start', start_command))
     application.add_handler(CommandHandler('menu', show_menu))
@@ -884,6 +923,7 @@ def main():
     application.add_handler(CommandHandler('open_registration', open_registration))
     application.add_handler(CommandHandler('restart_bot', restart_bot))
     application.add_handler(send_spam_conversation_handler)
+    application.add_handler(CommandHandler('list_jobs', list_scheduled_jobs))
     
     application.run_polling()
 
