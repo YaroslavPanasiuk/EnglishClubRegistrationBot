@@ -1,5 +1,5 @@
 from __future__ import print_function
-
+from telegram.error import BadRequest, Forbidden, NetworkError, TimedOut
 from datetime import datetime, time as dtime
 import json
 import os
@@ -10,7 +10,6 @@ import time
 import traceback
 import pandas as pd
 import sys
-import telegram.error
 import pytz
 import socket
 import requests
@@ -731,42 +730,54 @@ async def spam_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def ask_spam_message_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chats = get_chats()
     current_chat_id = update.effective_chat.id
-    message_type = "text"
-    message_caption = update.message.caption
-    if len(update.message.photo) > 0:
-        message_type = "photo"
-    if update.message.video:
-        print(update.message.video.get_file().file_id)
-        message_type = "video"
+    message = update.message
+    
     try:
         for chat in chats:
             student = find_student(chat)
             try:
-                match message_type:
-                    case "text":
-                        await context.bot.send_message(chat_id=int(chat), text=update.message.text)
-                    case "photo":
-                        await context.bot.send_photo(chat_id=int(chat), photo=update.message.photo[-1].file_id,
-                                               caption=message_caption)
-                    case "video":
-                        video_file = update.message.video.get_file()
-                        await context.bot.send_video(chat_id=int(chat), video=video_file.file_id,
-                                               caption=message_caption)
-                    case _:
-                        return await context.bot.send_message(chat_id=current_chat_id, text="invalid message type")
-                time.sleep(1)
-                await context.bot.send_message(chat_id=current_chat_id, text=f'sent to {student.name}, id = {student.id}')
-                time.sleep(1)
-            except telegram.error.Unauthorized:
-                await report_error(context.bot, current_chat_id, f'{student.name} has blocked me((')
-            except telegram.error.BadRequest:
-                await report_error(context.bot, current_chat_id, f'{student.name} has not yet contacted me')
+                if message.photo:
+                    await context.bot.send_photo(
+                        chat_id=int(chat), 
+                        photo=message.photo[-1].file_id,
+                        caption=message.caption
+                    )
+                elif message.video:
+                    await context.bot.send_video(
+                        chat_id=int(chat), 
+                        video=message.video.file_id,
+                        caption=message.caption
+                    )
+                elif message.text:
+                    await context.bot.send_message(
+                        chat_id=int(chat), 
+                        text=message.text
+                    )        
+
+                time.sleep(0.1)
+                await context.bot.send_message(
+                    chat_id=current_chat_id, 
+                    text=f'sent to {student.name}, id = {student.id}'
+                )
+                time.sleep(0.1)
+                
+            except Forbidden as e:
+                error_msg = f'{student.name} has blocked me' if "bot was blocked" in str(e).lower() else f'Permission error with {student.name}: {e}'
+                await report_error(context.bot, current_chat_id, error_msg)
+                
+            except BadRequest as e:
+                error_msg = f'{student.name} has not yet contacted me' if "chat not found" in str(e).lower() else f'Bad request for {student.name}: {e}'
+                await report_error(context.bot, current_chat_id, error_msg)
+                
+            except Exception as e:
+                await report_error(context.bot, current_chat_id, f'Error sending to {student.name}: {e}')
+                
         await context.bot.send_message(chat_id=current_chat_id, text='sentAll')
-    except:
+        
+    except Exception as e:
         await context.bot.send_message(chat_id=int(read_config('SUPER_ADMIN_ID')), text=traceback.format_exc())
         if current_chat_id != int(read_config('SUPER_ADMIN_ID')):
-            time.sleep(1)
-            await context.bot.send_message(chat_id=update.effective_chat.id, text=traceback.format_exc())
+            await context.bot.send_message(chat_id=update.effective_chat.id, text=f"Error: {str(e)}")
     finally:
         return ConversationHandler.END
 
@@ -871,7 +882,7 @@ def main():
     
     print('ready')
     
-    application = Application.builder().token(read_config("BOT_TOKEN")).build()
+    application = Application.builder().token(read_config("TEST_BOT_TOKEN")).build()
 
     job_queue = application.job_queue
 
@@ -893,7 +904,7 @@ def main():
     send_spam_conversation_handler = ConversationHandler(
         entry_points=[CommandHandler('spam_message', spam_message)],
         states={
-            SPAM_MESSAGE: [MessageHandler(filters.TEXT & (~ filters.COMMAND), ask_spam_message_text)],
+            SPAM_MESSAGE: [MessageHandler(filters.ALL & (~ filters.COMMAND), ask_spam_message_text)],
         },
         fallbacks=[CommandHandler('cancel', cancel_conversation)],
         per_message=False
