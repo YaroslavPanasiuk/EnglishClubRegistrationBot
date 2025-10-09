@@ -175,6 +175,27 @@ def get_students_to_spam_from_spreadsheets():
             print('No users found.')
             return pd.DataFrame([])
             
+        registered_users = data['values']
+        users_df = pd.DataFrame(registered_users)
+        users_df.columns = users_df.iloc[0]
+        users_df = users_df[1:]
+        return users_df
+
+    except Exception as err:
+        print(f"Error getting students: {err}")
+        return pd.DataFrame([])
+
+
+def get_students_to_spam_from_spreadsheets():
+    try:
+        spreadsheet_id = read_config("SAMPLE_SPREADSHEET_ID")
+        range_name = read_config('SPAM_RANGE_NAME')
+        
+        data = get_sheets_values(spreadsheet_id, range_name)
+        if not data or 'values' not in data:
+            print('No users found.')
+            return pd.DataFrame([])
+            
         users_to_spam = data['values']
         users_to_spam_df = pd.DataFrame(users_to_spam)
         users_to_spam_df.columns = users_to_spam_df.iloc[0]
@@ -265,7 +286,7 @@ def load_students_fromc_csv(filename: str) -> List[Student]:
 
 
 def find_student(telegram_id: int):
-    df = get_students_from_spreadsheets()
+    df = pd.concat([get_students_from_spreadsheets(), get_students_to_spam_from_spreadsheets()], ignore_index=True)
     if df.empty or not df.loc[df['id'] == telegram_id].values.flatten().tolist():
         return None
     return Student(df.loc[df['id'] == telegram_id].values.flatten().tolist())
