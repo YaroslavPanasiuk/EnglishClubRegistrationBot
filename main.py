@@ -903,7 +903,7 @@ def main():
     
     print('ready')
     
-    application = Application.builder().token(read_config("TEST_BOT_TOKEN")).build()
+    application = Application.builder().token(read_config("BOT_TOKEN")).build()
 
     job_queue = application.job_queue
 
