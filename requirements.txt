@@ -1,0 +1,9 @@
+google-api-python-client==2.130.0
+google-auth-oauthlib==1.2.0
+python-telegram-bot==20.7
+python-telegram-bot[job-queue]
+google-api-core==2.15.0
+googleapis-common-protos==1.63.0
+pandas==2.2.2
+urllib3==2.2.1
+python-dotenv==1.0.1

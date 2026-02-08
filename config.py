@@ -1,0 +1,15 @@
+import os
+from dotenv import load_dotenv
+
+load_dotenv()
+
+SCOPES = os.getenv("SCOPES")
+SAMPLE_SPREADSHEET_ID = os.getenv("SAMPLE_SPREADSHEET_ID")
+REGISTRATION_RANGE_NAME = os.getenv("REGISTRATION_RANGE_NAME")
+RESERVE_RANGE_NAME = os.getenv("RESERVE_RANGE_NAME")
+TEXTS_RANGE_NAME = os.getenv("TEXTS_RANGE_NAME")
+TUTOR_TIME_RANGE_NAME = os.getenv("TUTOR_TIME_RANGE_NAME")
+BOT_TOKEN = os.getenv("BOT_TOKEN")
+SUPER_ADMIN_ID = os.getenv("SUPER_ADMIN_ID")
+ADMIN_IDS = os.getenv("ADMIN_IDS")
+SPAM_RANGE_NAME = os.getenv("SPAM_RANGE_NAME")
