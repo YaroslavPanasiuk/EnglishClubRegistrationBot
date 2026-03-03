@@ -758,7 +758,7 @@ async def ask_spam_message_text(update: Update, context: ContextTypes.DEFAULT_TY
         for chat in chats:
             student = find_student(chat)
             try:
-                await bot.copy_message(
+                await context.bot.copy_message(
                     chat_id=int(chat),
                     from_chat_id=current_chat_id,
                     message_id=message.message_id
