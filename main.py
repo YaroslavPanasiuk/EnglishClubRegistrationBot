@@ -1,4 +1,5 @@
 from __future__ import print_function
+import asyncio
 from telegram.error import BadRequest, Forbidden, NetworkError, TimedOut
 from datetime import datetime, time as dtime
 import json
@@ -176,27 +177,6 @@ def get_students_to_spam_from_spreadsheets():
             print('No users found.')
             return pd.DataFrame([])
             
-        registered_users = data['values']
-        users_df = pd.DataFrame(registered_users)
-        users_df.columns = users_df.iloc[0]
-        users_df = users_df[1:]
-        return users_df
-
-    except Exception as err:
-        print(f"Error getting students: {err}")
-        return pd.DataFrame([])
-
-
-def get_students_to_spam_from_spreadsheets():
-    try:
-        spreadsheet_id = SAMPLE_SPREADSHEET_ID
-        range_name = SPAM_RANGE_NAME
-        
-        data = get_sheets_values(spreadsheet_id, range_name)
-        if not data or 'values' not in data:
-            print('No users found.')
-            return pd.DataFrame([])
-            
         users_to_spam = data['values']
         users_to_spam_df = pd.DataFrame(users_to_spam)
         users_to_spam_df.columns = users_to_spam_df.iloc[0]
@@ -289,6 +269,7 @@ def load_students_fromc_csv(filename: str) -> List[Student]:
 def find_student(telegram_id: int):
     df = pd.concat([get_students_from_spreadsheets(), get_students_to_spam_from_spreadsheets()], ignore_index=True)
     if df.empty or not df.loc[df['id'] == telegram_id].values.flatten().tolist():
+        print(df)
         return None
     return Student(df.loc[df['id'] == telegram_id].values.flatten().tolist())
 
@@ -750,40 +731,39 @@ async def spam_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 async def ask_spam_message_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    chats = get_chats()
+    students = get_students_to_spam_from_spreadsheets().values.tolist()
     current_chat_id = update.effective_chat.id
     message = update.message
     
     try:
-        for chat in chats:
-            student = find_student(chat)
+        for student in students:
             if not student:
-                await report_error(context.bot, current_chat_id, f'No student fount with id {chat}')
+                await report_error(context.bot, current_chat_id, f'No student fount with id {student[0]}')
                 continue
             try:
                 await context.bot.copy_message(
-                    chat_id=int(chat),
+                    chat_id=int(student[0]),
                     from_chat_id=current_chat_id,
                     message_id=message.message_id
                 )
 
-                time.sleep(0.1)
+                await asyncio.sleep(0.05)
                 await context.bot.send_message(
                     chat_id=current_chat_id, 
-                    text=f'sent to {student.name}, id = {student.id}'
+                    text=f'sent to {student[1]}, id = {student[0]}'
                 )
-                time.sleep(0.1)
+                await asyncio.sleep(0.5)
                 
             except Forbidden as e:
-                error_msg = f'{student.name} has blocked me' if "bot was blocked" in str(e).lower() else f'Permission error with {student.name}: {e}'
+                error_msg = f'{student[1]} has blocked me' if "bot was blocked" in str(e).lower() else f'Permission error with {student[1]}: {e}'
                 await report_error(context.bot, current_chat_id, error_msg)
                 
             except BadRequest as e:
-                error_msg = f'{student.name} has not yet contacted me' if "chat not found" in str(e).lower() else f'Bad request for {student.name}: {e}'
+                error_msg = f'{student[1]} has not yet contacted me' if "chat not found" in str(e).lower() else f'Bad request for {student[1]}: {e}'
                 await report_error(context.bot, current_chat_id, error_msg)
                 
             except Exception as e:
-                await report_error(context.bot, current_chat_id, f'Error sending to {student.name}: {e}')
+                await report_error(context.bot, current_chat_id, f'Error sending to {student[1]}: {e}')
                 
         await context.bot.send_message(chat_id=current_chat_id, text='sentAll')
         
