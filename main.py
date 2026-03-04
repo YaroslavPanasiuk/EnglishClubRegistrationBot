@@ -757,6 +757,9 @@ async def ask_spam_message_text(update: Update, context: ContextTypes.DEFAULT_TY
     try:
         for chat in chats:
             student = find_student(chat)
+            if not student:
+                await report_error(context.bot, current_chat_id, f'No student fount with id {chat}')
+                continue
             try:
                 await context.bot.copy_message(
                     chat_id=int(chat),
